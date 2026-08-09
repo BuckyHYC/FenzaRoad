@@ -80,7 +80,8 @@ export const DENSITY_CONFIG: Record<
 };
 
 export const CAMERA_CONFIG = {
-  FOV: 62,
+  FOV: 74,
+  HOOD_FOV: 90,
   NEAR: 0.1,
   FAR: 1800,
   CHASE_DISTANCE: 8.5,

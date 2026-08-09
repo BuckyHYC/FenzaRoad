@@ -74,6 +74,11 @@ export class Game {
   private frameTime = 0;
   private readonly cameraPosition = new THREE.Vector3();
   private readonly cameraLook = new THREE.Vector3();
+  private activeFov: number = CAMERA_CONFIG.FOV;
+  private garageSwitchT = 1;
+  private thumbRenderer: THREE.WebGLRenderer | null = null;
+  private thumbScene: THREE.Scene | null = null;
+  private thumbCamera: THREE.PerspectiveCamera | null = null;
 
   constructor(container: HTMLElement) {
     const lowPowerRender =
@@ -124,6 +129,7 @@ export class Game {
     this.city = buildCity(this.scene);
     this.input = new InputSystem();
     this.audio = new AudioSystem();
+    this.audio.init();
     this.player = this.createPlayer(gameState.player.vehicleId, gameState.player.color);
     this.player.visuals.group.visible = false;
     this.showcase = this.createPlayer(gameState.player.vehicleId, gameState.player.color);
@@ -139,6 +145,15 @@ export class Game {
       nextLap: () => this.debugNextLap(),
       teleport: (x: number, z: number) => this.debugTeleport(x, z),
     };
+
+    const unlockAudio = (): void => {
+      this.audio.resume();
+      this.audio.startBgm();
+      window.removeEventListener('pointerdown', unlockAudio);
+      window.removeEventListener('keydown', unlockAudio);
+    };
+    window.addEventListener('pointerdown', unlockAudio);
+    window.addEventListener('keydown', unlockAudio);
 
     this.renderer.setAnimationLoop(this.animate);
     this.showMenu();
@@ -167,6 +182,20 @@ export class Game {
     this.ui.showMainMenu();
     this.setShowcaseVisible(true);
     this.setPlayerVisible(false);
+    this.finishGarageSwitch();
+    this.traffic.setActive(false);
+    this.pedestrians.setActive(false);
+    this.clearAiVehicles();
+    this.placeShowcase();
+  }
+
+  showSettings(): void {
+    gameState.setMode('menu');
+    this.city.setRacePropsVisible(false);
+    this.ui.showSettings();
+    this.setShowcaseVisible(true);
+    this.setPlayerVisible(false);
+    this.finishGarageSwitch();
     this.traffic.setActive(false);
     this.pedestrians.setActive(false);
     this.clearAiVehicles();
@@ -178,6 +207,7 @@ export class Game {
     this.ui.showGarage();
     this.setShowcaseVisible(true);
     this.setPlayerVisible(false);
+    this.finishGarageSwitch();
     this.traffic.setActive(false);
     this.pedestrians.setActive(false);
     this.clearAiVehicles();
@@ -188,6 +218,72 @@ export class Game {
     this.scene.remove(this.showcase.visuals.group);
     this.showcase = this.createPlayer(vehicleId, color);
     this.placeShowcase();
+    this.garageSwitchT = 0;
+    this.showcase.visuals.group.scale.setScalar(0.25);
+  }
+
+  captureGarageThumbnail(): string | null {
+    if (!this.thumbRenderer) {
+      this.thumbRenderer = new THREE.WebGLRenderer({
+        alpha: true,
+        antialias: false,
+        preserveDrawingBuffer: true,
+        powerPreference: 'high-performance',
+      });
+      this.thumbRenderer.setPixelRatio(1);
+      this.thumbRenderer.setSize(440, 280);
+      this.thumbRenderer.shadowMap.enabled = true;
+      this.thumbRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    }
+    if (!this.thumbScene || !this.thumbCamera) {
+      const scene = new THREE.Scene();
+      const hemi = new THREE.HemisphereLight(0xcfe6ff, 0x6d8f6a, 1.1);
+      scene.add(hemi);
+      const sun = new THREE.DirectionalLight(0xfff2d8, 2.4);
+      sun.position.set(5, 8, 6);
+      sun.castShadow = true;
+      sun.shadow.mapSize.set(1024, 1024);
+      sun.shadow.camera.near = 1;
+      sun.shadow.camera.far = 30;
+      sun.shadow.camera.left = -6;
+      sun.shadow.camera.right = 6;
+      sun.shadow.camera.top = 6;
+      sun.shadow.camera.bottom = -6;
+      scene.add(sun);
+      scene.add(sun.target);
+      const ground = new THREE.Mesh(
+        new THREE.PlaneGeometry(14, 14),
+        new THREE.MeshStandardMaterial({
+          color: 0x121820,
+          roughness: 0.9,
+          metalness: 0.1,
+        }),
+      );
+      ground.rotation.x = -Math.PI / 2;
+      ground.position.y = -0.02;
+      ground.receiveShadow = true;
+      scene.add(ground);
+      const camera = new THREE.PerspectiveCamera(32, 440 / 280, 0.1, 60);
+      camera.position.set(4.8, 2.5, 5.6);
+      camera.lookAt(0, 0.45, 0);
+      this.thumbScene = scene;
+      this.thumbCamera = camera;
+    }
+
+    const group = this.showcase.visuals.group;
+    this.scene.remove(group);
+    this.thumbScene.add(group);
+    group.position.set(0, 0, 0);
+    group.rotation.set(0, 0.55, 0);
+    group.updateMatrixWorld(true);
+    try {
+      this.thumbRenderer.render(this.thumbScene, this.thumbCamera);
+      return this.thumbRenderer.domElement.toDataURL('image/png');
+    } finally {
+      this.thumbScene.remove(group);
+      this.scene.add(group);
+      this.placeShowcase();
+    }
   }
 
   selectGarageVehicle(vehicleId: string, color: string): void {
@@ -209,6 +305,7 @@ export class Game {
     this.ui.showRaceMenu();
     this.setShowcaseVisible(true);
     this.setPlayerVisible(false);
+    this.finishGarageSwitch();
     this.traffic.setActive(false);
     this.placeShowcase();
   }
@@ -227,6 +324,7 @@ export class Game {
     this.player.reset(center - 12, center - 16, Math.PI);
     this.audio.init();
     this.audio.resume();
+    this.audio.startBgm();
   }
 
   startRace(): void {
@@ -257,6 +355,7 @@ export class Game {
     this.race.startCountdown();
     this.audio.init();
     this.audio.resume();
+    this.audio.startBgm();
   }
 
   restartRace(): void {
@@ -340,6 +439,15 @@ export class Game {
     }
 
     if (gameState.mode === 'menu' || gameState.mode === 'garage') {
+      if (this.garageSwitchT < 1) {
+        this.garageSwitchT = Math.min(1, this.garageSwitchT + dt * 3.4);
+        const t = this.garageSwitchT;
+        const c1 = 1.70158;
+        const c3 = c1 + 1;
+        const scale =
+          1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+        this.showcase.visuals.group.scale.setScalar(Math.max(0.01, scale));
+      }
       this.orbitTime += dt;
       this.updateOrbitCamera();
     } else if (gameState.mode === 'freeRoam') {
@@ -465,6 +573,7 @@ export class Game {
     let desiredY: number;
     let desiredZ: number;
     if (this.cameraMode === 'chase') {
+      this.setCameraFov(CAMERA_CONFIG.FOV);
       desiredX = this.player.x - fx * CAMERA_CONFIG.CHASE_DISTANCE;
       desiredY = CAMERA_CONFIG.CHASE_HEIGHT;
       desiredZ = this.player.z - fz * CAMERA_CONFIG.CHASE_DISTANCE;
@@ -474,6 +583,7 @@ export class Game {
         this.player.z + fz * CAMERA_CONFIG.LOOK_AHEAD,
       );
     } else {
+      this.setCameraFov(CAMERA_CONFIG.HOOD_FOV);
       const rx = fz;
       const rz = -fx;
       desiredX =
@@ -505,6 +615,7 @@ export class Game {
   }
 
   private updateOrbitCamera(): void {
+    this.setCameraFov(CAMERA_CONFIG.FOV);
     const radius = CAMERA_CONFIG.ORBIT_DISTANCE;
     const angle = this.orbitTime * 0.28;
     const cx = this.showcase.x;
@@ -743,6 +854,18 @@ export class Game {
     const center = (WORLD.GRID_SIZE / 2) * WORLD.BLOCK_LENGTH;
     this.showcase.reset(center, center, 0);
     this.showcase.visuals.group.visible = true;
+  }
+
+  private finishGarageSwitch(): void {
+    this.garageSwitchT = 1;
+    this.showcase.visuals.group.scale.setScalar(1);
+  }
+
+  private setCameraFov(fov: number): void {
+    if (this.activeFov === fov) return;
+    this.activeFov = fov;
+    this.camera.fov = fov;
+    this.camera.updateProjectionMatrix();
   }
 
   private clearAiVehicles(): void {

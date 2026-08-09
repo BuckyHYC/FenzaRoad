@@ -44,6 +44,7 @@ export class UIManager {
   private readonly root: HTMLDivElement;
   private readonly menuOverlay: HTMLDivElement;
   private readonly raceMenuOverlay: HTMLDivElement;
+  private readonly settingsOverlay: HTMLDivElement;
   private readonly garageOverlay: HTMLDivElement;
   private readonly hudOverlay: HTMLDivElement;
   private readonly countdownOverlay: HTMLDivElement;
@@ -64,7 +65,7 @@ export class UIManager {
   private readonly garageCards = new Map<string, HTMLButtonElement>();
   private readonly garageSwatches: HTMLDivElement;
   private readonly garageName: HTMLHeadingElement;
-  private readonly controlModeRow: HTMLDivElement;
+  private readonly garageThumb: HTMLImageElement;
   private readonly statBars = new Map<string, HTMLDivElement>();
   private readonly minimap: Minimap;
   private readonly touchControls: TouchControls;
@@ -80,6 +81,7 @@ export class UIManager {
 
     this.menuOverlay = this.buildMainMenu();
     this.raceMenuOverlay = this.buildRaceMenu();
+    this.settingsOverlay = this.buildSettings();
     this.garageOverlay = this.buildGarage();
     this.hudOverlay = this.buildHud();
     this.countdownOverlay = el('div', 'overlay countdown-overlay hidden') as HTMLDivElement;
@@ -89,6 +91,7 @@ export class UIManager {
     this.root.append(
       this.menuOverlay,
       this.raceMenuOverlay,
+      this.settingsOverlay,
       this.garageOverlay,
       this.hudOverlay,
       this.countdownOverlay,
@@ -133,24 +136,25 @@ export class UIManager {
 
     const garageName = this.garageOverlay.querySelector('#garage-name');
     const garageSwatches = this.garageOverlay.querySelector('#garage-swatches');
+    const garageThumb = this.garageOverlay.querySelector('#garage-thumb');
     const muteButton = this.menuOverlay.querySelector('#menu-mute');
+    const settingsMuteButton = this.settingsOverlay.querySelector('#settings-mute');
     if (
       !(garageName instanceof HTMLHeadingElement) ||
       !(garageSwatches instanceof HTMLDivElement) ||
-      !(muteButton instanceof HTMLButtonElement)
+      !(garageThumb instanceof HTMLImageElement) ||
+      !(muteButton instanceof HTMLButtonElement) ||
+      !(settingsMuteButton instanceof HTMLButtonElement)
     ) {
       throw new Error('Garage/menu elements missing');
     }
     this.garageName = garageName;
     this.garageSwatches = garageSwatches;
+    this.garageThumb = garageThumb;
     this.muteButton = muteButton;
     this.muteButton.textContent = gameState.settings.muted ? '声音：关' : '声音：开';
+    settingsMuteButton.textContent = gameState.settings.muted ? '声音：关' : '声音：开';
 
-    const controlModeRow = this.menuOverlay.querySelector('#control-mode-row');
-    if (!(controlModeRow instanceof HTMLDivElement)) {
-      throw new Error('Control mode row missing');
-    }
-    this.controlModeRow = controlModeRow;
     this.setDifficulty(gameState.race.difficulty);
     this.refreshControlModeButtons();
 
@@ -173,6 +177,14 @@ export class UIManager {
   showMainMenu(): void {
     this.hideAll();
     this.menuOverlay.classList.remove('hidden');
+    this.touchControls.hide();
+  }
+
+  showSettings(): void {
+    this.hideAll();
+    this.settingsOverlay.classList.remove('hidden');
+    this.refreshControlModeButtons();
+    this.refreshDensityButtons();
     this.touchControls.hide();
   }
 
@@ -265,10 +277,26 @@ export class UIManager {
     this.selectedGarageColor = color;
     this.game.showGarageVehicle(vehicleId, color);
     this.refreshGaragePreview();
+    const wrap = this.garageThumb.parentElement;
+    if (wrap) {
+      wrap.classList.remove('garage-switching');
+      void wrap.offsetWidth;
+      wrap.classList.add('garage-switching');
+      window.setTimeout(() => wrap.classList.remove('garage-switching'), 260);
+    }
   }
 
   confirmGarageSelection(): void {
     this.game.selectGarageVehicle(this.selectedGarageVehicleId, this.selectedGarageColor);
+  }
+
+  private cycleGarage(direction: number): void {
+    const index = VEHICLES.findIndex((v) => v.id === this.selectedGarageVehicleId);
+    const next = VEHICLES[(index + direction + VEHICLES.length) % VEHICLES.length];
+    const color = next.colorOptions.includes(this.selectedGarageColor)
+      ? this.selectedGarageColor
+      : next.color;
+    this.setGaragePreview(next.id, color);
   }
 
   setDifficulty(difficulty: Difficulty): void {
@@ -285,40 +313,91 @@ export class UIManager {
   }
 
   private buildMainMenu(): HTMLDivElement {
-    const overlay = el('div', 'overlay menu-overlay') as HTMLDivElement;
-    const panel = el('div', 'menu-panel') as HTMLDivElement;
+    const overlay = el('div', 'overlay menu-overlay menu-hero-overlay') as HTMLDivElement;
+    const panel = el('div', 'menu-panel menu-hero') as HTMLDivElement;
+    panel.appendChild(el('p', 'menu-kicker', 'FENZA ROAD'));
     panel.appendChild(el('h1', 'game-title', '城市驾驶模拟'));
     panel.appendChild(el('p', 'game-subtitle', '单机开放城市 · 自由漫游与 AI 竞速'));
-    panel.appendChild(button('menu-btn menu-btn-primary', '自由漫游', () => this.game.startFreeRoam()));
-    panel.appendChild(button('menu-btn', '竞速模式', () => this.game.showRaceMenu()));
-    panel.appendChild(button('menu-btn', '车库', () => this.game.showGarage()));
+    const accent = el('div', 'menu-accent') as HTMLDivElement;
+    panel.appendChild(accent);
+    panel.appendChild(button('menu-btn menu-btn-lg menu-btn-primary', '自由漫游', () => this.game.startFreeRoam()));
+    panel.appendChild(button('menu-btn menu-btn-lg', '竞速模式', () => this.game.showRaceMenu()));
+    panel.appendChild(button('menu-btn menu-btn-lg', '车库', () => this.game.showGarage()));
+    panel.appendChild(button('menu-btn menu-btn-lg', '设置', () => this.game.showSettings()));
+    const footer = el('div', 'menu-footer') as HTMLDivElement;
     const mute = button('menu-btn menu-btn-small', '', () => this.game.toggleMute());
     mute.id = 'menu-mute';
-    panel.appendChild(mute);
-    const controlRow = el('div', 'difficulty-row control-mode-row') as HTMLDivElement;
-    controlRow.id = 'control-mode-row';
-    const desktopBtn = button('seg-btn', '电脑操控', () => this.setControlMode('desktop'));
-    desktopBtn.dataset.controlMode = 'desktop';
-    const mobileBtn = button('seg-btn', '手机操控', () => this.setControlMode('mobile'));
-    mobileBtn.dataset.controlMode = 'mobile';
-    controlRow.appendChild(desktopBtn);
-    controlRow.appendChild(mobileBtn);
-    panel.appendChild(controlRow);
+    footer.appendChild(mute);
+    footer.appendChild(el('span', 'menu-chip', `${VEHICLES.length} 台座驾`));
+    footer.appendChild(el('span', 'menu-chip', `${RACE_CONFIG.TOTAL_LAPS} 圈竞速`));
+    panel.appendChild(footer);
     overlay.appendChild(panel);
     return overlay;
   }
 
   refreshMuteButton(): void {
-    this.muteButton.textContent = gameState.settings.muted ? '声音：关' : '声音：开';
+    const text = gameState.settings.muted ? '声音：关' : '声音：开';
+    this.muteButton.textContent = text;
+    const settingsMute = this.settingsOverlay.querySelector('#settings-mute');
+    if (settingsMute) settingsMute.textContent = text;
   }
 
   private refreshControlModeButtons(): void {
-    for (const node of this.controlModeRow.querySelectorAll('[data-control-mode]')) {
-      const active =
-        node instanceof HTMLElement &&
-        node.dataset.controlMode === gameState.settings.controlMode;
-      node.classList.toggle('active', active);
+    for (const row of this.root.querySelectorAll('.control-mode-row')) {
+      for (const node of row.querySelectorAll('[data-control-mode]')) {
+        const active =
+          node instanceof HTMLElement &&
+          node.dataset.controlMode === gameState.settings.controlMode;
+        node.classList.toggle('active', active);
+      }
     }
+  }
+
+  private buildSettings(): HTMLDivElement {
+    const overlay = el('div', 'overlay settings-overlay hidden') as HTMLDivElement;
+    const panel = el('div', 'menu-panel settings-panel') as HTMLDivElement;
+    panel.appendChild(el('h1', 'menu-heading', '设置'));
+    panel.appendChild(el('p', 'menu-description', '声音、操控方式与城市流量'));
+
+    const soundRow = el('div', 'settings-row') as HTMLDivElement;
+    soundRow.appendChild(el('span', 'settings-label', '声音'));
+    const soundButton = button('seg-btn seg-btn-wide', '', () => this.game.toggleMute());
+    soundButton.id = 'settings-mute';
+    soundRow.appendChild(soundButton);
+    panel.appendChild(soundRow);
+
+    const controlRow = el('div', 'settings-row settings-row-column') as HTMLDivElement;
+    controlRow.appendChild(el('span', 'settings-label', '操控方式'));
+    const controlSeg = el('div', 'difficulty-row control-mode-row') as HTMLDivElement;
+    controlSeg.id = 'settings-control-mode-row';
+    const desktopBtn = button('seg-btn', '电脑操控', () => this.setControlMode('desktop'));
+    desktopBtn.dataset.controlMode = 'desktop';
+    const mobileBtn = button('seg-btn', '手机操控', () => this.setControlMode('mobile'));
+    mobileBtn.dataset.controlMode = 'mobile';
+    controlSeg.appendChild(desktopBtn);
+    controlSeg.appendChild(mobileBtn);
+    controlRow.appendChild(controlSeg);
+    panel.appendChild(controlRow);
+
+    const densityRow = el('div', 'settings-row settings-row-column') as HTMLDivElement;
+    densityRow.appendChild(el('span', 'settings-label', '交通密度'));
+    const densitySeg = el('div', 'difficulty-row') as HTMLDivElement;
+    const densities: { id: Density; label: string }[] = [
+      { id: 'low', label: '少' },
+      { id: 'medium', label: '适量' },
+      { id: 'high', label: '多' },
+    ];
+    for (const item of densities) {
+      const node = button('seg-btn', item.label, () => this.setDensity(item.id));
+      node.dataset.density = item.id;
+      densitySeg.appendChild(node);
+    }
+    densityRow.appendChild(densitySeg);
+    panel.appendChild(densityRow);
+
+    panel.appendChild(button('menu-btn menu-btn-secondary', '返回主菜单', () => this.game.showMenu()));
+    overlay.appendChild(panel);
+    return overlay;
   }
 
   private buildRaceMenu(): HTMLDivElement {
@@ -352,6 +431,18 @@ export class UIManager {
     const list = el('div', 'garage-list') as HTMLDivElement;
     panel.appendChild(list);
     const detail = el('div', 'garage-detail') as HTMLDivElement;
+    const stage = el('div', 'garage-stage') as HTMLDivElement;
+    const prevArrow = button('garage-arrow garage-arrow-left', '‹', () => this.cycleGarage(-1));
+    prevArrow.setAttribute('aria-label', '上一辆');
+    const thumbWrap = el('div', 'garage-thumb-wrap') as HTMLDivElement;
+    const thumb = el('img', 'garage-thumb') as HTMLImageElement;
+    thumb.id = 'garage-thumb';
+    thumb.alt = '';
+    thumbWrap.appendChild(thumb);
+    const nextArrow = button('garage-arrow garage-arrow-right', '›', () => this.cycleGarage(1));
+    nextArrow.setAttribute('aria-label', '下一辆');
+    stage.append(prevArrow, thumbWrap, nextArrow);
+    detail.appendChild(stage);
     const name = el('h2', 'garage-name') as HTMLHeadingElement;
     name.id = 'garage-name';
     const statRows = el('div', 'garage-stats') as HTMLDivElement;
@@ -492,7 +583,7 @@ export class UIManager {
   }
 
   private refreshDensityButtons(): void {
-    for (const node of this.pauseOverlay.querySelectorAll('[data-density]')) {
+    for (const node of this.root.querySelectorAll('[data-density]')) {
       const active =
         node instanceof HTMLElement && node.dataset.density === gameState.settings.density;
       node.classList.toggle('active', active);
@@ -539,6 +630,8 @@ export class UIManager {
     for (const [id, card] of this.garageCards) {
       card.classList.toggle('active', id === this.selectedGarageVehicleId);
     }
+    const thumbnailUrl = this.game.captureGarageThumbnail();
+    if (thumbnailUrl) this.garageThumb.src = thumbnailUrl;
   }
 
   private subscribeEvents(): void {
@@ -573,6 +666,7 @@ export class UIManager {
     for (const overlay of [
       this.menuOverlay,
       this.raceMenuOverlay,
+      this.settingsOverlay,
       this.garageOverlay,
       this.hudOverlay,
       this.countdownOverlay,

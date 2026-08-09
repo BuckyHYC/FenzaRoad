@@ -369,16 +369,16 @@ export function buildCity(scene: THREE.Scene): City {
     }
   }
 
-  const lampPositions: { x: number; z: number }[][] = Array.from(
+  const streetLampPositions: { x: number; z: number }[][] = Array.from(
     { length: CHUNK_COUNT },
     () => [],
   );
   for (const node of intersections) {
-    lampPositions[chunkIndexAt(node.x + 9.5, node.z + 9.5)].push({
+    streetLampPositions[chunkIndexAt(node.x + 9.5, node.z + 9.5)].push({
       x: node.x + 9.5,
       z: node.z + 9.5,
     });
-    lampPositions[chunkIndexAt(node.x - 9.5, node.z - 9.5)].push({
+    streetLampPositions[chunkIndexAt(node.x - 9.5, node.z - 9.5)].push({
       x: node.x - 9.5,
       z: node.z - 9.5,
     });
@@ -429,10 +429,18 @@ export function buildCity(scene: THREE.Scene): City {
     roughness: 0.7,
   });
   const lampHeadMaterial = new THREE.MeshBasicMaterial({ color: 0xffe6a0 });
+  const signalHousingMaterial = new THREE.MeshStandardMaterial({
+    color: 0x1b1d21,
+    roughness: 0.55,
+    metalness: 0.25,
+  });
   const redSignalMaterial = new THREE.MeshBasicMaterial({ color: 0xd33a2c });
+  const yellowSignalMaterial = new THREE.MeshBasicMaterial({ color: 0xffc53d });
   const greenSignalMaterial = new THREE.MeshBasicMaterial({ color: 0x2fbf4f });
+  const SIGNAL_LAMP_Y = [4.98, 5.55, 6.12] as const;
   const signalChunks: {
     red: THREE.InstancedMesh;
+    yellow: THREE.InstancedMesh;
     green: THREE.InstancedMesh;
     instances: { x: number; z: number; axis: 'x' | 'z' }[];
   }[] = [];
@@ -577,7 +585,7 @@ export function buildCity(scene: THREE.Scene): City {
       chunkGroup.add(foliageTop);
     }
 
-    const chunkLamps = lampPositions[c];
+    const chunkLamps = streetLampPositions[c];
     if (chunkLamps.length > 0) {
       const poleMesh = makeInstanced(
         new THREE.CylinderGeometry(0.07, 0.1, 4.6, 5),
@@ -632,19 +640,83 @@ export function buildCity(scene: THREE.Scene): City {
       signalPoleMesh.instanceMatrix.needsUpdate = true;
       chunkGroup.add(signalPoleMesh);
 
+      const signalHeads = makeInstanced(
+        new THREE.BoxGeometry(0.82, 2.05, 0.52),
+        signalHousingMaterial,
+        chunkSignals.length,
+      );
+      signalHeads.name = 'signal-heads';
+      for (let i = 0; i < chunkSignals.length; i += 1) {
+        const signal = chunkSignals[i];
+        signalHeads.setMatrixAt(
+          i,
+          new THREE.Matrix4().compose(
+            new THREE.Vector3(signal.x, 5.55, signal.z),
+            new THREE.Quaternion(),
+            new THREE.Vector3(1, 1, 1),
+          ),
+        );
+      }
+      signalHeads.instanceMatrix.needsUpdate = true;
+      chunkGroup.add(signalHeads);
+
+      const lampGeometry = new THREE.CylinderGeometry(0.24, 0.24, 0.06, 20);
+      const lampQuaternion = (axis: 'x' | 'z'): THREE.Quaternion =>
+        new THREE.Quaternion().setFromEuler(
+          new THREE.Euler(
+            Math.PI / 2,
+            axis === 'x' ? Math.PI / 2 : 0,
+            0,
+          ),
+        );
       const redSignals = makeInstanced(
-        new THREE.BoxGeometry(0.55, 0.75, 0.55),
+        lampGeometry,
         redSignalMaterial,
         chunkSignals.length,
       );
+      redSignals.name = 'signal-red-lamps';
+      const yellowSignals = makeInstanced(
+        lampGeometry,
+        yellowSignalMaterial,
+        chunkSignals.length,
+      );
+      yellowSignals.name = 'signal-yellow-lamps';
       const greenSignals = makeInstanced(
-        new THREE.BoxGeometry(0.55, 0.75, 0.55),
+        lampGeometry,
         greenSignalMaterial,
         chunkSignals.length,
       );
+      greenSignals.name = 'signal-green-lamps';
+      for (let i = 0; i < chunkSignals.length; i += 1) {
+        const signal = chunkSignals[i];
+        const quaternion = lampQuaternion(signal.axis);
+        for (const [lampIndex, lamps] of [
+          [0, redSignals],
+          [1, yellowSignals],
+          [2, greenSignals],
+        ] as const) {
+          lamps.setMatrixAt(
+            i,
+            new THREE.Matrix4().compose(
+              new THREE.Vector3(signal.x, SIGNAL_LAMP_Y[lampIndex], signal.z),
+              quaternion,
+              new THREE.Vector3(1, 1, 1),
+            ),
+          );
+        }
+      }
+      redSignals.instanceMatrix.needsUpdate = true;
+      yellowSignals.instanceMatrix.needsUpdate = true;
+      greenSignals.instanceMatrix.needsUpdate = true;
       chunkGroup.add(redSignals);
+      chunkGroup.add(yellowSignals);
       chunkGroup.add(greenSignals);
-      signalChunks.push({ red: redSignals, green: greenSignals, instances: chunkSignals });
+      signalChunks.push({
+        red: redSignals,
+        yellow: yellowSignals,
+        green: greenSignals,
+        instances: chunkSignals,
+      });
     }
     chunks.push(chunkGroup);
   }
@@ -658,21 +730,36 @@ export function buildCity(scene: THREE.Scene): City {
         const nodeIndex = intersections.findIndex(
           (n) => Math.abs(n.x - signal.x) < 7 && Math.abs(n.z - signal.z) < 7,
         );
-        const green = lightGreenFor(signal.axis, timeSec, nodeIndex);
+        const offset = (nodeIndex % 7) * 1.6;
+        const t = (timeSec + offset) % WORLD.LIGHT_CYCLE;
+        const green =
+          signal.axis === 'x'
+            ? t < WORLD.LIGHT_GREEN
+            : t >= WORLD.LIGHT_YELLOW_START;
+        const yellow =
+          t >= WORLD.LIGHT_GREEN && t < WORLD.LIGHT_YELLOW_START;
+        const red = !green && !yellow;
         signalMatrix.compose(
-          new THREE.Vector3(signal.x, 4.7, signal.z),
+          new THREE.Vector3(signal.x, SIGNAL_LAMP_Y[0], signal.z),
           new THREE.Quaternion(),
-          new THREE.Vector3(1, green ? 0 : 1, 1),
+          new THREE.Vector3(1, red ? 1 : 0, 1),
         );
         signalChunk.red.setMatrixAt(i, signalMatrix);
         signalMatrix.compose(
-          new THREE.Vector3(signal.x, 4.7, signal.z),
+          new THREE.Vector3(signal.x, SIGNAL_LAMP_Y[1], signal.z),
+          new THREE.Quaternion(),
+          new THREE.Vector3(1, yellow ? 1 : 0, 1),
+        );
+        signalChunk.yellow.setMatrixAt(i, signalMatrix);
+        signalMatrix.compose(
+          new THREE.Vector3(signal.x, SIGNAL_LAMP_Y[2], signal.z),
           new THREE.Quaternion(),
           new THREE.Vector3(1, green ? 1 : 0, 1),
         );
         signalChunk.green.setMatrixAt(i, signalMatrix);
       }
       signalChunk.red.instanceMatrix.needsUpdate = true;
+      signalChunk.yellow.instanceMatrix.needsUpdate = true;
       signalChunk.green.instanceMatrix.needsUpdate = true;
     }
   };

@@ -1,7 +1,9 @@
 import { AUDIO_CONFIG } from '../core/Constants';
+import { MusicSystem } from './MusicSystem';
 
 export class AudioSystem {
   private ctx: AudioContext | null = null;
+  private music: MusicSystem | null = null;
   private engineOsc: OscillatorNode | null = null;
   private engineOsc2: OscillatorNode | null = null;
   private engineGain: GainNode | null = null;
@@ -10,8 +12,14 @@ export class AudioSystem {
 
   init(): void {
     if (this.ctx) return;
-    const ctx = new AudioContext();
+    let ctx: AudioContext;
+    try {
+      ctx = new AudioContext();
+    } catch {
+      return;
+    }
     this.ctx = ctx;
+    this.music = new MusicSystem(ctx);
 
     const engineGain = ctx.createGain();
     engineGain.gain.value = 0;
@@ -45,6 +53,7 @@ export class AudioSystem {
 
   setMuted(muted: boolean): void {
     this.muted = muted;
+    this.music?.setMuted(muted);
     if (this.ctx && this.engineGain) {
       this.engineGain.gain.setTargetAtTime(
         muted ? 0 : AUDIO_CONFIG.ENGINE_BASE_GAIN,
@@ -56,6 +65,10 @@ export class AudioSystem {
 
   isMuted(): boolean {
     return this.muted;
+  }
+
+  startBgm(): void {
+    this.music?.start();
   }
 
   suspend(): void {

@@ -75,6 +75,13 @@ test('hood camera tracks the player vehicle without lag', async ({ page }) => {
   await expect(page.locator('#hud')).toBeVisible();
   await page.keyboard.press('c');
   await page.waitForTimeout(200);
+  const hoodFov = await page.evaluate(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      camera: { fov: number };
+    };
+    return game.camera.fov;
+  });
+  expect(hoodFov).toBeGreaterThan(80);
   await page.keyboard.down('w');
   await page.waitForTimeout(600);
   const error = await page.evaluate(() => {
@@ -135,6 +142,34 @@ test('traffic signals have poles connected to the ground', async ({ page }) => {
   expect(poles.count).toBeGreaterThan(0);
   expect(poles.minY).toBeGreaterThanOrEqual(-0.05);
   expect(poles.maxY).toBeGreaterThan(4.5);
+});
+
+test('traffic signal heads show red, yellow and green lamps', async ({ page }) => {
+  await boot(page);
+  const lamps = await page.evaluate(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      city: {
+        group: {
+          traverse: (fn: (obj: {
+            name?: string;
+            isInstancedMesh?: boolean;
+            count?: number;
+          }) => void) => void;
+        };
+      };
+    };
+    const counts: Record<string, number> = {};
+    game.city.group.traverse((obj) => {
+      if (!obj.isInstancedMesh || !obj.name) return;
+      if (/^signal-(red|yellow|green)-lamps$/.test(obj.name)) {
+        counts[obj.name] = (counts[obj.name] ?? 0) + (obj.count ?? 0);
+      }
+    });
+    return counts;
+  });
+  expect(lamps['signal-red-lamps']).toBeGreaterThan(0);
+  expect(lamps['signal-yellow-lamps']).toBeGreaterThan(0);
+  expect(lamps['signal-green-lamps']).toBeGreaterThan(0);
 });
 
 test('automatic transmission shifts at redline and HUD shows tachometer', async ({ page }) => {
@@ -292,17 +327,65 @@ test('garage selection persists to localStorage', async ({ page }) => {
   expect(vehicleId).toBe('coupe');
 });
 
+test('garage shows a thumbnail of the selected vehicle', async ({ page }) => {
+  await boot(page);
+  await page.getByRole('button', { name: '车库' }).click();
+  const thumb = page.locator('#garage-thumb');
+  await expect(thumb).toBeVisible();
+  const firstSrc = await thumb.getAttribute('src');
+  expect(firstSrc).toMatch(/^data:image\/png/);
+
+  await page.locator('[data-vehicle-id="coupe"]').click();
+  await expect(page.locator('#garage-name')).toHaveText('运动轿跑');
+  const secondSrc = await thumb.getAttribute('src');
+  expect(secondSrc).toBeTruthy();
+  expect(secondSrc).not.toBe(firstSrc);
+});
+
+test('garage arrows cycle vehicles with a smooth transition', async ({ page }) => {
+  await boot(page);
+  await page.getByRole('button', { name: '车库' }).click();
+  await expect(page.locator('#garage-name')).toHaveText('城市轿车');
+
+  await page.getByRole('button', { name: '下一辆' }).click();
+  await expect(page.locator('#garage-name')).toHaveText('运动轿跑');
+  await page.getByRole('button', { name: '下一辆' }).click();
+  await expect(page.locator('#garage-name')).toHaveText('越野 SUV');
+  await page.getByRole('button', { name: '上一辆' }).click();
+  await expect(page.locator('#garage-name')).toHaveText('运动轿跑');
+  await expect(page.locator('.garage-thumb-wrap')).not.toHaveClass(/garage-switching/, {
+    timeout: 2000,
+  });
+});
+
 test('control mode choice controls joystick visibility', async ({ page }) => {
   await boot(page);
-  await page.getByRole('button', { name: '电脑操控' }).click();
+  await page.getByRole('button', { name: '设置' }).click();
+  await page.locator('.settings-overlay').getByRole('button', { name: '电脑操控' }).click();
+  await page.locator('.settings-overlay').getByRole('button', { name: '返回主菜单' }).click();
   await page.getByRole('button', { name: '自由漫游' }).click();
   await expect(page.locator('.touch-controls')).toBeHidden();
 
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: '返回主菜单' }).click();
-  await page.getByRole('button', { name: '手机操控' }).click();
+  await page.getByRole('button', { name: '设置' }).click();
+  await page.locator('.settings-overlay').getByRole('button', { name: '手机操控' }).click();
+  await page.locator('.settings-overlay').getByRole('button', { name: '返回主菜单' }).click();
   await page.getByRole('button', { name: '自由漫游' }).click();
   await expect(page.locator('.touch-controls')).toBeVisible();
+});
+
+test('settings screen exposes sound, control mode and density controls', async ({ page }) => {
+  await boot(page);
+  await page.getByRole('button', { name: '设置' }).click();
+  await expect(page.locator('.settings-overlay')).toBeVisible();
+  await expect(page.locator('.settings-overlay')).toContainText('声音');
+  await expect(page.locator('.settings-overlay')).toContainText('操控方式');
+  await expect(page.locator('.settings-overlay')).toContainText('交通密度');
+  await page.locator('.settings-overlay').getByRole('button', { name: '手机操控' }).click();
+  await expect(page.locator('.settings-overlay [data-control-mode="mobile"]')).toHaveClass(/active/);
+  await page.locator('.settings-overlay').getByRole('button', { name: '返回主菜单' }).click();
+  await expect(page.locator('.menu-hero-overlay')).toBeVisible();
 });
 
 test.skip('mobile joystick steer direction matches screen left/right', async ({ page }) => {
