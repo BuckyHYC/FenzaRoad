@@ -316,7 +316,7 @@ export class UIManager {
   private buildMainMenu(): HTMLDivElement {
     const overlay = el('div', 'overlay menu-overlay menu-hero-overlay') as HTMLDivElement;
     const panel = el('div', 'menu-panel menu-hero') as HTMLDivElement;
-    panel.appendChild(el('p', 'menu-kicker', 'FENZA ROAD'));
+    panel.appendChild(el('p', 'menu-kicker', 'MORON TOWN'));
     panel.appendChild(el('h1', 'game-title', '城市驾驶模拟'));
     panel.appendChild(el('p', 'game-subtitle', '单机开放城市 · 自由漫游与 AI 竞速'));
     const accent = el('div', 'menu-accent') as HTMLDivElement;
@@ -445,7 +445,6 @@ export class UIManager {
     const nextArrow = button('garage-arrow garage-arrow-right', '›', () => this.cycleGarage(1));
     nextArrow.setAttribute('aria-label', '下一辆');
     stage.append(prevArrow, thumbWrap, nextArrow);
-    mainCol.appendChild(stage);
     const name = el('h2', 'garage-name') as HTMLHeadingElement;
     name.id = 'garage-name';
     mainCol.appendChild(name);
@@ -479,7 +478,7 @@ export class UIManager {
     const swatches = el('div', 'garage-swatches') as HTMLDivElement;
     swatches.id = 'garage-swatches';
     mainCol.appendChild(swatches);
-    detail.append(mainCol, specCol);
+    detail.append(stage, mainCol, specCol);
     detail.appendChild(button('menu-btn menu-btn-primary', '使用此车辆', () => this.confirmGarageSelection()));
     detail.appendChild(button('menu-btn menu-btn-secondary', '返回', () => this.game.showMenu()));
     panel.appendChild(detail);

@@ -385,6 +385,7 @@ canvas {
   grid-template-columns: 44px 1fr 44px;
   align-items: center;
   gap: 10px;
+  grid-column: 1 / -1;
 }
 
 .garage-arrow {

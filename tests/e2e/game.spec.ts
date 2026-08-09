@@ -82,6 +82,59 @@ test('free roam drives, camera toggle and pause work', async ({ page }) => {
   await expect(page.locator('.pause-overlay')).toBeHidden();
 });
 
+test('drift pose rotates the model without changing driving physics', async ({ page }) => {
+  await boot(page);
+  await page.getByRole('button', { name: '自由漫游' }).click();
+  const result = await page.evaluate(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      player: {
+        speed: number;
+        lateral: number;
+        heading: number;
+        visuals: { group: { rotation: { y: number } } };
+        getDriftPose: () => number;
+        update: (dt: number, input: {
+          throttle: number;
+          brake: number;
+          steer: number;
+          handbrake: boolean;
+        }) => void;
+      };
+      city: {
+        group: {
+          traverse: (fn: (obj: { name?: string }) => void) => void;
+        };
+      };
+    };
+    const names = new Set<string>();
+    game.city.group.traverse((obj) => {
+      if (obj.name) names.add(obj.name);
+    });
+    const player = game.player;
+    player.speed = 18;
+    player.lateral = 0;
+    player.heading = 0;
+    player.update(0.06, { throttle: 0, brake: 0, steer: 1, handbrake: true });
+    const pose = player.getDriftPose();
+    const driftDiff = Math.abs(player.visuals.group.rotation.y - player.heading);
+    const headingAfter = player.heading;
+    return { names: [...names], pose, driftDiff, headingAfter };
+  });
+  expect(result.pose).toBeGreaterThan(0.3);
+  expect(result.driftDiff).toBeGreaterThan(0.05);
+  expect(result.headingAfter).toBeLessThan(0.3);
+  expect(result.names).toEqual(
+    expect.arrayContaining([
+      'river',
+      'bridge',
+      'village',
+      'highway-shoulder',
+      'alley',
+      'hill',
+    ]),
+  );
+});
+
 test('traffic signals have poles and three lamp heads', async ({ page }) => {
   await boot(page);
   const result = await page.evaluate(() => {

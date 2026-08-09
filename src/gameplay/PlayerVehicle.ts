@@ -28,6 +28,7 @@ export class PlayerVehicle {
   private steerAngle = 0;
   private wheelRoll = 0;
   private shiftTimer = 0;
+  private driftPose = 0;
   private readonly gearMaxSpeeds: number[];
 
   constructor(
@@ -54,6 +55,7 @@ export class PlayerVehicle {
     this.rpm = this.spec.engineIdleRpm;
     this.shiftTimer = 0;
     this.steerAngle = 0;
+    this.driftPose = 0;
     this.wheelRoll = 0;
     this.syncVisuals();
   }
@@ -94,6 +96,10 @@ export class PlayerVehicle {
     );
     const current = this.computeWheelAccel(torque, gearRatio);
     return (current / reference) * this.spec.accelMs2;
+  }
+
+  getDriftPose(): number {
+    return this.driftPose;
   }
 
   getVelocity(): { vx: number; vz: number } {
@@ -176,6 +182,12 @@ export class PlayerVehicle {
     this.x += velocity.vx * dt;
     this.z += velocity.vz * dt;
 
+    const targetDrift =
+      input.handbrake && Math.abs(input.steer) > 0.15 && Math.abs(this.speed) > 6
+        ? 1
+        : 0;
+    this.driftPose += (targetDrift - this.driftPose) * Math.min(1, dt * 7);
+
     this.wheelRoll += (this.speed / WHEEL_RADIUS) * dt;
     this.syncVisuals();
   }
@@ -250,7 +262,8 @@ export class PlayerVehicle {
   private syncVisuals(): void {
     const group = this.visuals.group;
     group.position.set(this.x, 0, this.z);
-    group.rotation.y = this.heading;
+    group.rotation.y = this.heading + this.driftPose * -this.steerAngle * 1.6;
+    group.rotation.z = this.driftPose * -this.steerAngle * 0.18;
     this.visuals.frontLeftPivot.rotation.y = this.steerAngle;
     this.visuals.frontRightPivot.rotation.y = this.steerAngle;
     if (this.visuals.steeringWheel) {

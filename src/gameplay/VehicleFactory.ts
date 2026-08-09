@@ -691,6 +691,7 @@ export function buildVehicle(
       ),
       interiorMat,
     );
+    dashboard.name = 'interior-dashboard';
     dashboard.position.set(0, bodyTop + 0.2, cabinFront - 0.3);
     dashboard.castShadow = false;
     group.add(dashboard);
@@ -702,6 +703,7 @@ export function buildVehicle(
     const pillarLen = cabinTop - bodyTop;
     for (const side of [-1, 1]) {
       const pillar = new THREE.Mesh(pillarGeo, interiorMat);
+      pillar.name = 'interior-pillar';
       pillar.scale.y = pillarLen;
       pillar.position.set(
         side * (cabinW / 2 - 0.05),
@@ -720,11 +722,13 @@ export function buildVehicle(
       ),
       interiorMat,
     );
+    headliner.name = 'interior-headliner';
     headliner.position.set(0, cabinTop - 0.05, cabinZ);
     headliner.castShadow = false;
     group.add(headliner);
 
     const steeringPivot = new THREE.Group();
+    steeringPivot.name = 'interior-steering-pivot';
     steeringPivot.position.set(-0.34, bodyTop + 0.38, cabinFront - 0.42);
     steeringPivot.rotation.x = -0.55;
     steeringWheel = new THREE.Group();

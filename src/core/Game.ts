@@ -296,6 +296,7 @@ export class Game {
     if (this.player.visuals.glassMesh) {
       this.player.visuals.glassMesh.visible = this.cameraMode === 'chase';
     }
+    this.applyInteriorVisibility();
     this.showMenu();
   }
 
@@ -562,6 +563,7 @@ export class Game {
       if (this.player.visuals.glassMesh) {
         this.player.visuals.glassMesh.visible = this.cameraMode === 'chase';
       }
+      this.applyInteriorVisibility();
     }
     if (this.input.consume('mute')) this.toggleMute();
   }
@@ -590,7 +592,8 @@ export class Game {
         this.player.x +
         fx * CAMERA_CONFIG.INTERIOR_FORWARD +
         rx * CAMERA_CONFIG.INTERIOR_LATERAL;
-      desiredY = CAMERA_CONFIG.INTERIOR_EYE_HEIGHT;
+      desiredY =
+        this.player.spec.height * CAMERA_CONFIG.INTERIOR_EYE_HEIGHT_RATIO;
       desiredZ =
         this.player.z +
         fz * CAMERA_CONFIG.INTERIOR_FORWARD +
@@ -866,6 +869,20 @@ export class Game {
     this.activeFov = fov;
     this.camera.fov = fov;
     this.camera.updateProjectionMatrix();
+  }
+
+  private applyInteriorVisibility(): void {
+    const visible = this.cameraMode === 'chase';
+    this.player.visuals.group.traverse((child) => {
+      if (
+        child instanceof THREE.Mesh &&
+        (child.name === 'interior-dashboard' ||
+          child.name === 'interior-pillar' ||
+          child.name === 'interior-headliner')
+      ) {
+        child.visible = visible;
+      }
+    });
   }
 
   private clearAiVehicles(): void {
