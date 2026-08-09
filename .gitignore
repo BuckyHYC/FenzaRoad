@@ -17,6 +17,7 @@ playwright-report
 
 # Debug screenshots
 debug-*.png
+diag.mjs
 
 # Editor
 .vscode/*

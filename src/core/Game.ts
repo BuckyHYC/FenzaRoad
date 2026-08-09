@@ -13,6 +13,7 @@ import type { CameraMode } from './types';
 import { InputSystem } from '../systems/InputSystem';
 import { AudioSystem } from '../systems/AudioSystem';
 import { buildCity, type City } from '../level/CityBuilder';
+import { createSkybox } from '../level/Skybox';
 import { PlayerVehicle } from '../gameplay/PlayerVehicle';
 import { TrafficSystem } from '../gameplay/TrafficSystem';
 import { PedestrianSystem, type PedestrianCollider } from '../gameplay/PedestrianSystem';
@@ -32,6 +33,15 @@ interface ColliderBody {
   vehicle: PlayerVehicle;
 }
 
+function vehicleMass(vehicle: PlayerVehicle): number {
+  return (
+    vehicle.spec.length *
+    vehicle.spec.width *
+    vehicle.spec.height *
+    PHYSICS.VEHICLE_MASS_DENSITY
+  );
+}
+
 export class Game {
   readonly debug: {
     finishRace: () => void;
@@ -42,6 +52,7 @@ export class Game {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene: THREE.Scene;
   private readonly camera: THREE.PerspectiveCamera;
+  private readonly sky: THREE.Mesh;
   private readonly clock = new THREE.Clock();
   private readonly sun: THREE.DirectionalLight;
   private readonly city: City;
@@ -77,6 +88,8 @@ export class Game {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(COLORS.SKY);
     this.scene.fog = new THREE.FogExp2(COLORS.FOG, 0.0016);
+    this.sky = createSkybox();
+    this.scene.add(this.sky);
 
     this.camera = new THREE.PerspectiveCamera(
       CAMERA_CONFIG.FOV,
@@ -290,11 +303,13 @@ export class Game {
       this.tick(PHYSICS.FIXED_STEP);
       this.accumulator -= PHYSICS.FIXED_STEP;
     }
+    this.sky.position.copy(this.camera.position);
     this.renderer.render(this.scene, this.camera);
   };
 
   private tick(dt: number): void {
     this.timeSec += dt;
+    this.sky.rotation.y = this.timeSec * 0.0025;
     this.input.update();
     this.handleDiscreteInput();
     this.city.updateSignals(this.timeSec);
@@ -546,6 +561,7 @@ export class Game {
   }
 
   private resolvePair(vehicle: PlayerVehicle, other: ColliderBody): void {
+    const otherVehicle = other.vehicle;
     const radius = vehicle.spec.width / 2 + PHYSICS.CAR_RADIUS_PADDING;
     const dx = other.x - vehicle.x;
     const dz = other.z - vehicle.z;
@@ -558,15 +574,29 @@ export class Game {
     const overlap = (minDist - dist) / 2;
     vehicle.x -= nx * overlap;
     vehicle.z -= nz * overlap;
-    const velocity = vehicle.getVelocity();
-    const vn = velocity.vx * nx + velocity.vz * nz;
-    if (vn < -1.2) {
-      vehicle.speed *= 0.55;
-      vehicle.lateral *= 0.5;
-      const intensity = Math.min(1, -vn / 12);
-      eventBus.emit(Events.VEHICLE_COLLISION, { intensity });
-      this.audio.playCollision(intensity);
-    }
+    otherVehicle.x += nx * overlap;
+    otherVehicle.z += nz * overlap;
+
+    const va = vehicle.getVelocity();
+    const vb = otherVehicle.getVelocity();
+    const relN = (va.vx - vb.vx) * nx + (va.vz - vb.vz) * nz;
+    if (relN >= 0) return;
+
+    const ma = vehicleMass(vehicle);
+    const mb = vehicleMass(otherVehicle);
+    const impulse =
+      (-(1 + PHYSICS.COLLISION_RESTITUTION) * relN) / (1 / ma + 1 / mb);
+    const iax = (impulse / ma) * nx;
+    const iaz = (impulse / ma) * nz;
+    const ibx = (impulse / mb) * nx;
+    const ibz = (impulse / mb) * nz;
+    vehicle.setVelocity(va.vx - iax, va.vz - iaz);
+    otherVehicle.setVelocity(vb.vx + ibx, vb.vz + ibz);
+    if (vehicle !== this.player) this.traffic.syncVehicleSpeed(vehicle);
+    if (otherVehicle !== this.player) this.traffic.syncVehicleSpeed(otherVehicle);
+    const intensity = Math.min(1, -relN / 14);
+    eventBus.emit(Events.VEHICLE_COLLISION, { intensity });
+    this.audio.playCollision(intensity);
   }
 
   private clampToBounds(vehicle: PlayerVehicle): void {

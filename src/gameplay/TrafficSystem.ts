@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { TRAFFIC_CONFIG, VEHICLES } from '../core/Constants';
+import { DENSITY_CONFIG, TRAFFIC_CONFIG, VEHICLES } from '../core/Constants';
+import { gameState } from '../core/GameState';
 import type { City } from '../level/CityBuilder';
 import { PlayerVehicle } from './PlayerVehicle';
 
@@ -56,11 +57,20 @@ export class TrafficSystem {
     }));
   }
 
+  syncVehicleSpeed(vehicle: PlayerVehicle): void {
+    for (const npc of this.npcs) {
+      if (npc.vehicle !== vehicle) continue;
+      npc.speed = vehicle.speed;
+      return;
+    }
+  }
+
   update(dt: number, timeSec: number, playerX: number, playerZ: number): void {
     if (!this.active) return;
+    const density = DENSITY_CONFIG[gameState.settings.density];
     this.spawnTimer -= dt;
     if (this.spawnTimer <= 0) {
-      this.spawnTimer = TRAFFIC_CONFIG.SPAWN_INTERVAL;
+      this.spawnTimer = density.trafficSpawnInterval;
       this.trySpawn(playerX, playerZ);
     }
 
@@ -203,7 +213,7 @@ export class TrafficSystem {
   }
 
   private trySpawn(playerX: number, playerZ: number): void {
-    if (this.npcs.length >= TRAFFIC_CONFIG.MAX_COUNT) return;
+    if (this.npcs.length >= DENSITY_CONFIG[gameState.settings.density].trafficMax) return;
     for (let attempt = 0; attempt < 12; attempt += 1) {
       const edge = this.city.edges[Math.floor(Math.random() * this.city.edges.length)];
       const reverse = Math.random() < 0.5;

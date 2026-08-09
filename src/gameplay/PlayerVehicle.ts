@@ -63,6 +63,13 @@ export class PlayerVehicle {
     return { vx: fx * this.speed + rx * this.lateral, vz: fz * this.speed + rz * this.lateral };
   }
 
+  setVelocity(vx: number, vz: number): void {
+    const fx = Math.sin(this.heading);
+    const fz = Math.cos(this.heading);
+    this.speed = vx * fx + vz * fz;
+    this.lateral = vx * fz - vz * fx;
+  }
+
   update(dt: number, input: DriveInput): void {
     const spec = this.spec;
 

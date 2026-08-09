@@ -1,7 +1,7 @@
 import { RACE_CONFIG, VEHICLES } from '../core/Constants';
 import { eventBus, Events } from '../core/EventBus';
 import { gameState } from '../core/GameState';
-import type { ControlMode, Difficulty, RacePhase } from '../core/types';
+import type { ControlMode, Density, Difficulty, RacePhase } from '../core/types';
 import type { InputSystem } from '../systems/InputSystem';
 import type { Game } from '../core/Game';
 import { Minimap } from './Minimap';
@@ -205,6 +205,12 @@ export class UIManager {
     gameState.settings.controlMode = mode;
     gameState.save();
     this.refreshControlModeButtons();
+  }
+
+  setDensity(density: Density): void {
+    gameState.settings.density = density;
+    gameState.save();
+    this.refreshDensityButtons();
   }
 
   showCountdown(value: number): void {
@@ -426,11 +432,33 @@ export class UIManager {
     const overlay = el('div', 'overlay pause-overlay hidden') as HTMLDivElement;
     const panel = el('div', 'menu-panel') as HTMLDivElement;
     panel.appendChild(el('h1', 'menu-heading', '暂停'));
+    panel.appendChild(el('p', 'menu-description', '交通密度'));
+    const densityRow = el('div', 'difficulty-row') as HTMLDivElement;
+    const densities: { id: Density; label: string }[] = [
+      { id: 'low', label: '少' },
+      { id: 'medium', label: '适量' },
+      { id: 'high', label: '多' },
+    ];
+    for (const item of densities) {
+      const node = button('seg-btn', item.label, () => this.setDensity(item.id));
+      node.dataset.density = item.id;
+      if (item.id === gameState.settings.density) node.classList.add('active');
+      densityRow.appendChild(node);
+    }
+    panel.appendChild(densityRow);
     panel.appendChild(button('menu-btn menu-btn-primary', '继续', () => this.game.togglePause()));
     panel.appendChild(button('menu-btn', '重新开始', () => this.game.restartCurrent()));
     panel.appendChild(button('menu-btn menu-btn-secondary', '返回主菜单', () => this.game.showMenu()));
     overlay.appendChild(panel);
     return overlay;
+  }
+
+  private refreshDensityButtons(): void {
+    for (const node of this.pauseOverlay.querySelectorAll('[data-density]')) {
+      const active =
+        node instanceof HTMLElement && node.dataset.density === gameState.settings.density;
+      node.classList.toggle('active', active);
+    }
   }
 
   private buildResult(): HTMLDivElement {

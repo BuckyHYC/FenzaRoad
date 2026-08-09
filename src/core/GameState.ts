@@ -4,6 +4,7 @@ import type {
   Difficulty,
   GameMode,
   ControlMode,
+  Density,
   PlayerState,
   RaceState,
   SavedProgress,
@@ -19,6 +20,7 @@ function emptySaved(): SavedProgress {
     bestLaps: {},
     muted: false,
     controlMode: touchDevice ? 'mobile' : 'desktop',
+    density: 'low',
   };
 }
 
@@ -43,6 +45,10 @@ function loadSaved(): SavedProgress {
       parsed.controlMode === 'mobile' || parsed.controlMode === 'desktop'
         ? parsed.controlMode
         : base.controlMode;
+    const density: Density =
+      parsed.density === 'low' || parsed.density === 'medium' || parsed.density === 'high'
+        ? parsed.density
+        : base.density;
     return {
       selectedVehicleId: vehicleId,
       selectedColor: color,
@@ -52,6 +58,7 @@ function loadSaved(): SavedProgress {
           : {},
       muted: parsed.muted === true,
       controlMode,
+      density,
     };
   } catch {
     return emptySaved();
@@ -81,13 +88,14 @@ class GameState {
     resultPosition: 0,
     bestLapMs: 0,
   };
-  settings = { muted: false, controlMode: 'desktop' as ControlMode };
+  settings = { muted: false, controlMode: 'desktop' as ControlMode, density: 'low' as Density };
   saved: SavedProgress;
 
   constructor() {
     this.saved = loadSaved();
     this.settings.muted = this.saved.muted;
     this.settings.controlMode = this.saved.controlMode;
+    this.settings.density = this.saved.density;
     this.player.vehicleId = this.saved.selectedVehicleId;
     this.player.color = this.saved.selectedColor;
   }
@@ -121,6 +129,7 @@ class GameState {
     this.saved.selectedColor = this.player.color;
     this.saved.muted = this.settings.muted;
     this.saved.controlMode = this.settings.controlMode;
+    this.saved.density = this.settings.density;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(this.saved));
     } catch {

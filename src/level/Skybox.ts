@@ -1,0 +1,71 @@
+import * as THREE from 'three';
+
+function drawCloud(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  size: number,
+  alpha: number,
+): void {
+  ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+  ctx.beginPath();
+  ctx.ellipse(x, y, size * 1.5, size * 0.52, 0, 0, Math.PI * 2);
+  ctx.ellipse(x + size * 0.85, y + size * 0.08, size * 0.95, size * 0.4, 0, 0, Math.PI * 2);
+  ctx.ellipse(x - size * 0.75, y + size * 0.05, size * 1.05, size * 0.46, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+export function createSkybox(): THREE.Mesh {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas 2D context unavailable');
+
+  const gradient = ctx.createLinearGradient(0, 0, 0, 512);
+  gradient.addColorStop(0, '#3f7fc4');
+  gradient.addColorStop(0.42, '#77b0e2');
+  gradient.addColorStop(0.7, '#b8d9ef');
+  gradient.addColorStop(0.86, '#e3eef6');
+  gradient.addColorStop(1, '#eef5f9');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, 1024, 512);
+
+  const sunX = 780;
+  const sunY = 120;
+  const sunGlow = ctx.createRadialGradient(sunX, sunY, 6, sunX, sunY, 130);
+  sunGlow.addColorStop(0, 'rgba(255,246,210,0.95)');
+  sunGlow.addColorStop(0.25, 'rgba(255,238,180,0.55)');
+  sunGlow.addColorStop(1, 'rgba(255,238,180,0)');
+  ctx.fillStyle = sunGlow;
+  ctx.fillRect(sunX - 140, sunY - 140, 280, 280);
+  ctx.fillStyle = 'rgba(255,252,230,0.95)';
+  ctx.beginPath();
+  ctx.arc(sunX, sunY, 26, 0, Math.PI * 2);
+  ctx.fill();
+
+  for (let i = 0; i < 34; i += 1) {
+    const x = ((i * 337 + 41) % 1024) + (Math.random() - 0.5) * 120;
+    const y = 42 + Math.random() * 240;
+    const size = 24 + Math.random() * 58;
+    const alpha = 0.45 + Math.random() * 0.45;
+    drawCloud(ctx, x, y, size, alpha);
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+
+  const sky = new THREE.Mesh(
+    new THREE.SphereGeometry(1600, 32, 16),
+    new THREE.MeshBasicMaterial({
+      map: texture,
+      side: THREE.BackSide,
+      fog: false,
+      depthWrite: false,
+    }),
+  );
+  sky.name = 'skybox';
+  sky.renderOrder = -10;
+  sky.frustumCulled = false;
+  return sky;
+}

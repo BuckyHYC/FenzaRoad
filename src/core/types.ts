@@ -4,6 +4,7 @@ export type Difficulty = 'easy' | 'normal' | 'hard';
 export type BodyStyle = 'sedan' | 'coupe' | 'suv' | 'pickup' | 'taxi' | 'police';
 export type CameraMode = 'chase' | 'hood';
 export type ControlMode = 'mobile' | 'desktop';
+export type Density = 'low' | 'medium' | 'high';
 
 export interface VehicleSpec {
   id: string;
@@ -42,6 +43,7 @@ export interface SavedProgress {
   bestLaps: Record<string, number>;
   muted: boolean;
   controlMode: ControlMode;
+  density: Density;
 }
 
 export interface PlayerState {
