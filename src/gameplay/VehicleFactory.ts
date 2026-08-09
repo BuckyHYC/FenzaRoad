@@ -242,8 +242,9 @@ function buildStaticGeometry(
 ): StaticGeometrySet {
   const profile = STYLE_PROFILES[style];
   const wheelR = 0.32;
-  const bodyH = H * 0.26;
+  const bodyH = H * 0.3;
   const bodyBevel = 0.045;
+  const bodyBottom = wheelR - 0.02;
   const bodyGeo = extrudeShape(
     taperedRoundedRect(
       W,
@@ -255,240 +256,112 @@ function buildStaticGeometry(
     bodyH,
     bodyBevel,
   );
-  const bodyY = wheelR - 0.04 + bodyH / 2 + bodyBevel;
-  const bodyTop = bodyY + bodyH / 2 + bodyBevel;
+  const bodyY = bodyBottom + bodyBevel;
+  const bodyTop = bodyBottom + bodyH + bodyBevel * 2;
   const cabinZ = L * profile.cabin.zOffset;
   const cabinLen = L * profile.cabin.lengthRatio;
   const cabinW = W * profile.cabin.widthRatio;
-  const cabinFront = cabinZ + cabinLen / 2;
-  const cabinRear = cabinZ - cabinLen / 2;
-  const windshieldHeight = 0.72;
-  const windshieldY = bodyTop + windshieldHeight / 2 + 0.02;
-  const roofY = bodyTop + windshieldHeight + 0.035;
-  const roofGeo = new THREE.BoxGeometry(
-    W * profile.roofWidthRatio,
-    0.07,
-    L * profile.roofLengthRatio,
+  const cabinH = H * profile.cabin.heightRatio;
+  const cabinBevel = 0.04;
+  const cabinGeo = extrudeShape(
+    taperedRoundedRect(cabinW, cabinLen, 0.97, 0.98, 0.45),
+    cabinH,
+    cabinBevel,
   );
-
-  const rotatedBox = (
-    w: number,
-    h: number,
-    d: number,
-    x: number,
-    y: number,
-    z: number,
-    rotationX: number,
-    key: MaterialKey,
-  ): StaticPart => ({ geo: new THREE.BoxGeometry(w, h, d), x, y, z, rotationX, key });
+  const cabinY = bodyTop + 0.01 + cabinBevel;
+  const cabinTop = cabinY + cabinH + cabinBevel;
+  const roofGeo = extrudeShape(
+    taperedRoundedRect(
+      W * profile.roofWidthRatio,
+      L * profile.roofLengthRatio,
+      1,
+      1,
+      0.35,
+    ),
+    0.08,
+    0.02,
+  );
+  const roofY = cabinTop + 0.04;
+  const roofTop = roofY + 0.1;
 
   const parts: StaticPart[] = [
     { geo: bodyGeo, x: 0, y: bodyY, z: 0, key: 'body' },
-    rotatedBox(cabinW, windshieldHeight + 0.28, 0.3, 0, bodyTop + 0.13, cabinZ, 0, 'glass'),
-    rotatedBox(cabinW, windshieldHeight, 0.08, 0, windshieldY, cabinFront - 0.04, -1.12, 'glass'),
-    rotatedBox(cabinW, windshieldHeight, 0.08, 0, windshieldY, cabinRear + 0.04, 1.24, 'glass'),
-    rotatedBox(cabinW * 0.94, windshieldHeight - 0.1, 0.05, -cabinW / 2 - 0.005, windshieldY - 0.03, cabinZ, 0, 'glass'),
-    rotatedBox(cabinW * 0.94, windshieldHeight - 0.1, 0.05, cabinW / 2 + 0.005, windshieldY - 0.03, cabinZ, 0, 'glass'),
+    { geo: cabinGeo, x: 0, y: cabinY, z: cabinZ, key: 'glass' },
     { geo: roofGeo, x: 0, y: roofY, z: cabinZ, key: 'body' },
     {
-      geo: new THREE.BoxGeometry(0.12, 0.12, 0.24),
-      x: -W / 2 - 0.05,
-      y: windshieldY - 0.12,
-      z: cabinFront + 0.1,
-      key: 'body',
+      geo: new THREE.BoxGeometry(0.22, 0.09, 0.04),
+      x: -W / 2 + 0.36,
+      y: wheelR + 0.48,
+      z: L / 2 + 0.01,
+      key: 'headlight',
     },
     {
-      geo: new THREE.BoxGeometry(0.12, 0.12, 0.24),
-      x: W / 2 + 0.05,
-      y: windshieldY - 0.12,
-      z: cabinFront + 0.1,
-      key: 'body',
+      geo: new THREE.BoxGeometry(0.22, 0.09, 0.04),
+      x: W / 2 - 0.36,
+      y: wheelR + 0.48,
+      z: L / 2 + 0.01,
+      key: 'headlight',
     },
     {
-      geo: new THREE.BoxGeometry(0.06, 0.02, 0.5),
-      x: -W / 2 + 0.14,
-      y: wheelR + 0.62,
-      z: 0,
-      key: 'dark',
+      geo: new THREE.BoxGeometry(0.24, 0.09, 0.04),
+      x: -W / 2 + 0.38,
+      y: wheelR + 0.44,
+      z: -L / 2 - 0.01,
+      key: 'taillight',
     },
     {
-      geo: new THREE.BoxGeometry(0.06, 0.02, 0.5),
-      x: W / 2 - 0.14,
-      y: wheelR + 0.62,
-      z: 0,
-      key: 'dark',
-    },
-    {
-      geo: new THREE.BoxGeometry(0.9, 0.22, 0.18),
-      x: 0,
-      y: wheelR + 0.32,
-      z: L / 2 + 0.03,
-      key: 'dark',
-    },
-    {
-      geo: new THREE.BoxGeometry(0.4, 0.08, 0.05),
-      x: 0,
-      y: wheelR + 0.33,
-      z: L / 2 + 0.1,
-      key: 'dark',
+      geo: new THREE.BoxGeometry(0.24, 0.09, 0.04),
+      x: W / 2 - 0.38,
+      y: wheelR + 0.44,
+      z: -L / 2 - 0.01,
+      key: 'taillight',
     },
   ];
-
-  parts.push(
-    {
-      geo: new THREE.BoxGeometry(W * 1.04, 0.28, 0.34),
-      x: 0,
-      y: wheelR + 0.13,
-      z: L / 2 + 0.08,
-      key: 'dark',
-    },
-    {
-      geo: new THREE.BoxGeometry(W * 1.04, 0.28, 0.34),
-      x: 0,
-      y: wheelR + 0.13,
-      z: -L / 2 - 0.08,
-      key: 'dark',
-    },
-    {
-      geo: new THREE.BoxGeometry(W * 0.92, 0.12, 0.1),
-      x: 0,
-      y: wheelR + 0.1,
-      z: L / 2 - 0.28,
-      key: 'dark',
-    },
-    {
-      geo: new THREE.BoxGeometry(W * 0.92, 0.12, 0.1),
-      x: 0,
-      y: wheelR + 0.1,
-      z: -L / 2 + 0.28,
-      key: 'dark',
-    },
-    {
-      geo: new THREE.BoxGeometry(W * 1.0, 0.5, 0.14),
-      x: 0,
-      y: wheelR + 0.16,
-      z: L / 2 + 0.16,
-      key: 'dark',
-    },
-    {
-      geo: new THREE.BoxGeometry(W * 1.0, 0.5, 0.14),
-      x: 0,
-      y: wheelR + 0.16,
-      z: -L / 2 - 0.16,
-      key: 'dark',
-    },
-    {
-      geo: new THREE.BoxGeometry(W * 1.02, 0.1, L * 0.46),
-      x: 0,
-      y: wheelR - 0.03,
-      z: 0,
-      key: 'dark',
-    },
-    {
-      geo: new THREE.BoxGeometry(0.42, 0.16, 0.03),
-      x: 0,
-      y: wheelR + 0.24,
-      z: L / 2 + 0.09,
-      key: 'dark',
-    },
-    {
-      geo: new THREE.BoxGeometry(0.42, 0.16, 0.03),
-      x: 0,
-      y: wheelR + 0.24,
-      z: -L / 2 - 0.09,
-      key: 'dark',
-    },
-  );
-
-  parts.push(
-    {
-      geo: new THREE.BoxGeometry(0.14, 0.1, 0.26),
-      x: -W / 2 - 0.03,
-      y: wheelR + 0.72,
-      z: -L * 0.1,
-      key: 'body',
-    },
-    {
-      geo: new THREE.BoxGeometry(0.14, 0.1, 0.26),
-      x: W / 2 + 0.03,
-      y: wheelR + 0.72,
-      z: -L * 0.1,
-      key: 'body',
-    },
-    {
-      geo: new THREE.BoxGeometry(0.18, 0.12, 0.05),
-      x: -W / 2 + 0.32,
-      y: wheelR + 0.45,
-      z: L / 2 + 0.05,
-      key: 'headlight',
-    },
-    {
-      geo: new THREE.BoxGeometry(0.18, 0.12, 0.05),
-      x: W / 2 - 0.32,
-      y: wheelR + 0.45,
-      z: L / 2 + 0.05,
-      key: 'headlight',
-    },
-    {
-      geo: new THREE.BoxGeometry(0.2, 0.1, 0.05),
-      x: -W / 2 + 0.34,
-      y: wheelR + 0.42,
-      z: -L / 2 - 0.05,
-      key: 'taillight',
-    },
-    {
-      geo: new THREE.BoxGeometry(0.2, 0.1, 0.05),
-      x: W / 2 - 0.34,
-      y: wheelR + 0.42,
-      z: -L / 2 - 0.05,
-      key: 'taillight',
-    },
-  );
 
   switch (profile.extra) {
     case 'taxiSign':
       parts.push({
-        geo: new THREE.BoxGeometry(W * 0.6, 0.16, 0.34),
+        geo: new THREE.BoxGeometry(W * 0.6, 0.14, 0.32),
         x: 0,
-        y: roofY + 0.09,
+        y: roofTop + 0.09,
         z: cabinZ,
         key: 'roof',
       });
       break;
     case 'policeBar':
       parts.push({
-        geo: new THREE.BoxGeometry(W * 0.66, 0.18, 0.46),
+        geo: new THREE.BoxGeometry(W * 0.66, 0.16, 0.44),
         x: 0,
-        y: roofY + 0.09,
+        y: roofTop + 0.09,
         z: cabinZ,
         key: 'dark',
       });
       parts.push({
         geo: new THREE.BoxGeometry(0.32, 0.1, 0.12),
         x: -W * 0.19,
-        y: roofY + 0.15,
+        y: roofTop + 0.15,
         z: cabinZ,
         key: 'lightbarRed',
       });
       parts.push({
         geo: new THREE.BoxGeometry(0.32, 0.1, 0.12),
         x: W * 0.19,
-        y: roofY + 0.15,
+        y: roofTop + 0.15,
         z: cabinZ,
         key: 'lightbarBlue',
       });
       parts.push(
         {
-          geo: new THREE.BoxGeometry(0.05, 0.32, L * 0.56),
-          x: -W / 2 + 0.02,
-          y: wheelR + 0.58,
+          geo: new THREE.BoxGeometry(0.05, 0.3, L * 0.56),
+          x: -(W / 2 - 0.025),
+          y: wheelR + 0.56,
           z: 0,
           key: 'stripe',
         },
         {
-          geo: new THREE.BoxGeometry(0.05, 0.32, L * 0.56),
-          x: W / 2 - 0.02,
-          y: wheelR + 0.58,
+          geo: new THREE.BoxGeometry(0.05, 0.3, L * 0.56),
+          x: W / 2 - 0.025,
+          y: wheelR + 0.56,
           z: 0,
           key: 'stripe',
         },
@@ -499,14 +372,14 @@ function buildStaticGeometry(
         {
           geo: new THREE.BoxGeometry(W * 0.82, 0.05, 0.1),
           x: 0,
-          y: roofY + 0.05,
+          y: roofTop + 0.04,
           z: cabinZ - 0.32,
           key: 'dark',
         },
         {
           geo: new THREE.BoxGeometry(W * 0.82, 0.05, 0.1),
           x: 0,
-          y: roofY + 0.05,
+          y: roofTop + 0.04,
           z: cabinZ + 0.32,
           key: 'dark',
         },
@@ -515,27 +388,41 @@ function buildStaticGeometry(
     case 'pickupBed':
       parts.push(
         {
-          geo: new THREE.BoxGeometry(W * 0.86, 0.12, L * 0.4),
+          geo: new THREE.BoxGeometry(W * 0.86, 0.06, L * 0.38),
           x: 0,
-          y: bodyTop + 0.03,
+          y: bodyTop + 0.05,
           z: -L * 0.2,
           key: 'dark',
         },
         {
-          geo: new THREE.BoxGeometry(W * 0.92, 0.3, 0.08),
+          geo: new THREE.BoxGeometry(W * 0.86, 0.22, 0.06),
           x: 0,
-          y: wheelR + 0.38,
-          z: -L / 2 + 0.03,
+          y: bodyTop + 0.2,
+          z: -L * 0.4 + 0.03,
+          key: 'dark',
+        },
+        {
+          geo: new THREE.BoxGeometry(0.06, 0.22, L * 0.38),
+          x: -W * 0.43,
+          y: bodyTop + 0.2,
+          z: -L * 0.2,
+          key: 'dark',
+        },
+        {
+          geo: new THREE.BoxGeometry(0.06, 0.22, L * 0.38),
+          x: W * 0.43,
+          y: bodyTop + 0.2,
+          z: -L * 0.2,
           key: 'dark',
         },
       );
       break;
     case 'coupeWing':
       parts.push({
-        geo: new THREE.BoxGeometry(W * 0.9, 0.05, 0.26),
+        geo: new THREE.BoxGeometry(W * 0.9, 0.05, 0.24),
         x: 0,
-        y: bodyTop + 0.12,
-        z: -L / 2 + 0.16,
+        y: bodyTop + 0.14,
+        z: -L / 2 + 0.18,
         key: 'dark',
       });
       break;

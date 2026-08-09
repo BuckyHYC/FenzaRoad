@@ -93,7 +93,7 @@ export class Game {
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(COLORS.SKY);
-    this.scene.fog = new THREE.FogExp2(COLORS.FOG, 0.0016);
+    this.scene.fog = new THREE.FogExp2(COLORS.FOG, 0.0025);
     this.sky = createSkybox();
     this.scene.add(this.sky);
     const pmrem = new THREE.PMREMGenerator(this.renderer);
@@ -330,6 +330,11 @@ export class Game {
     this.input.update();
     this.handleDiscreteInput();
     this.city.updateSignals(this.timeSec);
+    if (gameState.mode === 'menu' || gameState.mode === 'garage') {
+      this.city.updateChunks(this.showcase.x, this.showcase.z);
+    } else {
+      this.city.updateChunks(this.player.x, this.player.z);
+    }
 
     if (gameState.paused) {
       this.ui.updateHud();
@@ -466,11 +471,15 @@ export class Game {
       desiredX = this.player.x + fx * 0.6;
       desiredY = CAMERA_CONFIG.HOOD_HEIGHT;
       desiredZ = this.player.z + fz * 0.6;
+      this.cameraPosition.set(desiredX, desiredY, desiredZ);
       this.cameraLook.set(
         this.player.x + fx * 14,
         1.1,
         this.player.z + fz * 14,
       );
+      this.camera.position.copy(this.cameraPosition);
+      this.camera.lookAt(this.cameraLook);
+      return;
     }
     const smooth = 1 - Math.exp(-CAMERA_CONFIG.SMOOTH_FACTOR * dt);
     this.cameraPosition.lerp(

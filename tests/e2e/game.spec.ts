@@ -69,6 +69,58 @@ test('free roam drives and pause overlay works', async ({ page }) => {
   await expect(page.locator('.pause-overlay')).toBeHidden();
 });
 
+test('hood camera tracks the player vehicle without lag', async ({ page }) => {
+  await boot(page);
+  await page.locator('.menu-panel .menu-btn').first().click();
+  await expect(page.locator('#hud')).toBeVisible();
+  await page.keyboard.press('c');
+  await page.waitForTimeout(200);
+  await page.keyboard.down('w');
+  await page.waitForTimeout(600);
+  const error = await page.evaluate(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      cameraMode: string;
+      camera: { position: { x: number; y: number; z: number } };
+      player: { x: number; z: number; heading: number };
+    };
+    if (game.cameraMode !== 'hood') return 999;
+    const fx = Math.sin(game.player.heading);
+    const fz = Math.cos(game.player.heading);
+    return Math.hypot(
+      game.camera.position.x - (game.player.x + fx * 0.6),
+      game.camera.position.z - (game.player.z + fz * 0.6),
+    );
+  });
+  await page.keyboard.up('w');
+  expect(error).toBeLessThan(0.05);
+});
+
+test('distant city chunks are culled by render distance', async ({ page }) => {
+  await boot(page);
+  await page.locator('.menu-panel .menu-btn').first().click();
+  await expect(page.locator('#hud')).toBeVisible();
+  const visibleAtCenter = await page.evaluate(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      city: { chunks: Array<{ visible: boolean }> };
+    };
+    return game.city.chunks.filter((chunk) => chunk.visible).length;
+  });
+  await page.evaluate(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      debug: { teleport: (x: number, z: number) => void };
+    };
+    game.debug.teleport(20, 20);
+  });
+  await page.waitForTimeout(300);
+  const visibleAtCorner = await page.evaluate(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      city: { chunks: Array<{ visible: boolean }> };
+    };
+    return game.city.chunks.filter((chunk) => chunk.visible).length;
+  });
+  expect(visibleAtCenter).toBeGreaterThan(visibleAtCorner);
+});
+
 test('vehicle model is coherent and steering softens with speed', async ({ page }) => {
   await boot(page);
   await page.getByRole('button', { name: '车库' }).click();

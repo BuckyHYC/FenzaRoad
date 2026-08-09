@@ -19,6 +19,7 @@ export interface CityEdge {
 
 export interface City {
   group: THREE.Group;
+  chunks: THREE.Group[];
   intersections: CityIntersection[];
   edges: CityEdge[];
   lanes: LaneInfo[];
@@ -33,6 +34,7 @@ export interface City {
   setRacePropsVisible(visible: boolean): void;
   lightGreen(axis: 'x' | 'z', timeSec: number, nodeIndex: number): boolean;
   updateSignals(timeSec: number): void;
+  updateChunks(px: number, pz: number): void;
 }
 
 function mulberry32(seed: number): () => number {
@@ -212,12 +214,39 @@ export function buildCity(scene: THREE.Scene): City {
   ground.receiveShadow = true;
   group.add(ground);
 
-  const buildingMatrices: THREE.Matrix4[] = [];
-  const buildingColors: THREE.Color[] = [];
-  const roofMatrices: THREE.Matrix4[] = [];
-  const roofColors: THREE.Color[] = [];
-  const windowMatrices: THREE.Matrix4[] = [];
-  const windowColors: THREE.Color[] = [];
+  const CHUNK_SIZE = WORLD.BLOCK_LENGTH * 2;
+  const CHUNKS = Math.ceil(WORLD.GRID_SIZE / 2);
+  const CHUNK_COUNT = CHUNKS * CHUNKS;
+  const chunkIndexAt = (x: number, z: number): number => {
+    const cx = Math.min(CHUNKS - 1, Math.max(0, Math.floor(x / CHUNK_SIZE)));
+    const cz = Math.min(CHUNKS - 1, Math.max(0, Math.floor(z / CHUNK_SIZE)));
+    return cz * CHUNKS + cx;
+  };
+
+  const buildingMatrices: THREE.Matrix4[][] = Array.from(
+    { length: CHUNK_COUNT },
+    () => [],
+  );
+  const buildingColors: THREE.Color[][] = Array.from(
+    { length: CHUNK_COUNT },
+    () => [],
+  );
+  const roofMatrices: THREE.Matrix4[][] = Array.from(
+    { length: CHUNK_COUNT },
+    () => [],
+  );
+  const roofColors: THREE.Color[][] = Array.from(
+    { length: CHUNK_COUNT },
+    () => [],
+  );
+  const windowMatrices: THREE.Matrix4[][] = Array.from(
+    { length: CHUNK_COUNT },
+    () => [],
+  );
+  const windowColors: THREE.Color[][] = Array.from(
+    { length: CHUNK_COUNT },
+    () => [],
+  );
   const buildingColliders: Aabb[] = [];
   const treeColliders: CircleCollider[] = [];
   const inset = WORLD.BUILDING_INSET;
@@ -241,24 +270,25 @@ export function buildCity(scene: THREE.Scene): City {
           const bx = x0 + px * (plotW + gap) + (plotW - bw) * 0.5 + (rand() - 0.5) * 3;
           const bz = z0 + py * (plotD + gap) + (plotD - bd) * 0.5 + (rand() - 0.5) * 3;
           const bh = 9 + rand() * 38;
+          const chunk = chunkIndexAt(bx + bw / 2, bz + bd / 2);
           const matrix = new THREE.Matrix4().compose(
             new THREE.Vector3(bx + bw / 2, bh / 2, bz + bd / 2),
             new THREE.Quaternion(),
             new THREE.Vector3(bw, bh, bd),
           );
-          buildingMatrices.push(matrix);
+          buildingMatrices[chunk].push(matrix);
           const buildingColor = new THREE.Color(
             COLORS.BUILDINGS[Math.floor(rand() * COLORS.BUILDINGS.length)],
           );
-          buildingColors.push(buildingColor);
-          roofMatrices.push(
+          buildingColors[chunk].push(buildingColor);
+          roofMatrices[chunk].push(
             new THREE.Matrix4().compose(
               new THREE.Vector3(bx + bw / 2, bh + 0.16, bz + bd / 2),
               new THREE.Quaternion(),
               new THREE.Vector3(bw + 0.5, 0.32, bd + 0.5),
             ),
           );
-          roofColors.push(buildingColor.clone().multiplyScalar(0.66));
+          roofColors[chunk].push(buildingColor.clone().multiplyScalar(0.66));
           const windowCols = Math.min(5, Math.max(2, Math.floor(bw / 5.6)));
           const windowRows = Math.min(4, Math.max(2, Math.floor(bh / 6.2)));
           for (let wy = 0; wy < windowRows; wy += 1) {
@@ -271,7 +301,7 @@ export function buildCity(scene: THREE.Scene): City {
                 ? new THREE.Color(0xffe6a0)
                 : new THREE.Color(0x2b4a66);
               if (bd >= bw) {
-                windowMatrices.push(
+                windowMatrices[chunk].push(
                   new THREE.Matrix4().compose(
                     new THREE.Vector3(wxPos, wyPos, bz + bd + 0.07),
                     new THREE.Quaternion(),
@@ -283,9 +313,9 @@ export function buildCity(scene: THREE.Scene): City {
                     new THREE.Vector3(0.9, 1.1, 0.08),
                   ),
                 );
-                windowColors.push(windowColor, windowColor.clone());
+                windowColors[chunk].push(windowColor, windowColor.clone());
               } else {
-                windowMatrices.push(
+                windowMatrices[chunk].push(
                   new THREE.Matrix4().compose(
                     new THREE.Vector3(bx - 0.07, wyPos, wzPos),
                     new THREE.Quaternion().setFromAxisAngle(
@@ -303,7 +333,7 @@ export function buildCity(scene: THREE.Scene): City {
                     new THREE.Vector3(0.9, 1.1, 0.08),
                   ),
                 );
-                windowColors.push(windowColor, windowColor.clone());
+                windowColors[chunk].push(windowColor, windowColor.clone());
               }
             }
           }
@@ -313,56 +343,10 @@ export function buildCity(scene: THREE.Scene): City {
     }
   }
 
-  if (buildingMatrices.length > 0) {
-    const buildingMesh = makeInstanced(
-      new THREE.BoxGeometry(1, 1, 1),
-      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.78 }),
-      buildingMatrices.length,
-    );
-    buildingMesh.receiveShadow = true;
-    for (let i = 0; i < buildingMatrices.length; i += 1) {
-      buildingMesh.setMatrixAt(i, buildingMatrices[i]);
-      buildingMesh.setColorAt(i, buildingColors[i]);
-    }
-    buildingMesh.instanceMatrix.needsUpdate = true;
-    if (buildingMesh.instanceColor) buildingMesh.instanceColor.needsUpdate = true;
-    group.add(buildingMesh);
-  }
-
-  if (roofMatrices.length > 0) {
-    const roofMesh = makeInstanced(
-      new THREE.BoxGeometry(1, 1, 1),
-      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.72, metalness: 0.15 }),
-      roofMatrices.length,
-    );
-    roofMesh.receiveShadow = true;
-    for (let i = 0; i < roofMatrices.length; i += 1) {
-      roofMesh.setMatrixAt(i, roofMatrices[i]);
-      roofMesh.setColorAt(i, roofColors[i]);
-    }
-    roofMesh.instanceMatrix.needsUpdate = true;
-    if (roofMesh.instanceColor) roofMesh.instanceColor.needsUpdate = true;
-    group.add(roofMesh);
-  }
-
-  if (windowMatrices.length > 0) {
-    const windowMesh = makeInstanced(
-      new THREE.BoxGeometry(1, 1, 1),
-      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.45, metalness: 0.35 }),
-      windowMatrices.length,
-    );
-    windowMesh.receiveShadow = true;
-    windowMesh.castShadow = false;
-    for (let i = 0; i < windowMatrices.length; i += 1) {
-      windowMesh.setMatrixAt(i, windowMatrices[i]);
-      windowMesh.setColorAt(i, windowColors[i]);
-    }
-    windowMesh.instanceMatrix.needsUpdate = true;
-    if (windowMesh.instanceColor) windowMesh.instanceColor.needsUpdate = true;
-    group.add(windowMesh);
-  }
-
-  const treeTrunkData: { x: number; z: number; scale: number }[] = [];
+  const treeTrunkData: { x: number; z: number; scale: number }[][] = Array.from(
+    { length: CHUNK_COUNT },
+    () => [],
+  );
   const treeStep = 22;
   for (const edge of edges) {
     const a = intersections[edge.from];
@@ -376,168 +360,313 @@ export function buildCity(scene: THREE.Scene): City {
       const offset = WORLD.ROAD_WIDTH / 2 + WORLD.SIDEWALK_WIDTH * 0.65;
       const px = a.x + ux * t + rx * side * offset + (rand() - 0.5) * 2.4;
       const pz = a.z + uz * t + rz * side * offset + (rand() - 0.5) * 2.4;
-      treeTrunkData.push({ x: px, z: pz, scale: 0.8 + rand() * 0.7 });
+      treeTrunkData[chunkIndexAt(px, pz)].push({
+        x: px,
+        z: pz,
+        scale: 0.8 + rand() * 0.7,
+      });
       treeColliders.push({ x: px, z: pz, radius: TREE_COLLIDER_RADIUS });
     }
   }
-  if (treeTrunkData.length > 0) {
-    const trunkMesh = makeInstanced(
-      new THREE.CylinderGeometry(0.2, 0.34, 2.7, 7),
-      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1 }),
-      treeTrunkData.length,
-    );
-    const foliageLower = makeInstanced(
-      new THREE.ConeGeometry(1.55, 2.4, 8),
-      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95 }),
-      treeTrunkData.length,
-    );
-    const foliageUpper = makeInstanced(
-      new THREE.ConeGeometry(1.05, 2.1, 8),
-      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95 }),
-      treeTrunkData.length,
-    );
-    const foliageTop = makeInstanced(
-      new THREE.ConeGeometry(0.6, 1.8, 8),
-      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95 }),
-      treeTrunkData.length,
-    );
-    trunkMesh.castShadow = false;
-    foliageLower.castShadow = false;
-    foliageUpper.castShadow = false;
-    foliageTop.castShadow = false;
-    for (let i = 0; i < treeTrunkData.length; i += 1) {
-      const data = treeTrunkData[i];
-      const s = data.scale;
-      const trunkMatrix = new THREE.Matrix4().compose(
-        new THREE.Vector3(data.x, 1.35 * s, data.z),
-        new THREE.Quaternion(),
-        new THREE.Vector3(1, s, 1),
-      );
-      trunkMesh.setMatrixAt(i, trunkMatrix);
-      trunkMesh.setColorAt(i, new THREE.Color(0x6a4a2f).multiplyScalar(0.88 + rand() * 0.25));
-      const lowerMatrix = new THREE.Matrix4().compose(
-        new THREE.Vector3(data.x, 3.9 * s, data.z),
-        new THREE.Quaternion(),
-        new THREE.Vector3(1.55 * s, s, 1.55 * s),
-      );
-      foliageLower.setMatrixAt(i, lowerMatrix);
-      foliageLower.setColorAt(
-        i,
-        new THREE.Color(0x37642f).multiplyScalar(0.85 + rand() * 0.35),
-      );
-      const upperMatrix = new THREE.Matrix4().compose(
-        new THREE.Vector3(data.x, 6.15 * s, data.z),
-        new THREE.Quaternion(),
-        new THREE.Vector3(1.05 * s, s, 1.05 * s),
-      );
-      foliageUpper.setMatrixAt(i, upperMatrix);
-      foliageUpper.setColorAt(
-        i,
-        new THREE.Color(0x3f7d3a).multiplyScalar(0.9 + rand() * 0.3),
-      );
-      const topMatrix = new THREE.Matrix4().compose(
-        new THREE.Vector3(data.x, 8.1 * s, data.z),
-        new THREE.Quaternion(),
-        new THREE.Vector3(0.6 * s, s, 0.6 * s),
-      );
-      foliageTop.setMatrixAt(i, topMatrix);
-      foliageTop.setColorAt(
-        i,
-        new THREE.Color(0x4a8a44).multiplyScalar(0.9 + rand() * 0.3),
-      );
-    }
-    trunkMesh.instanceMatrix.needsUpdate = true;
-    if (trunkMesh.instanceColor) trunkMesh.instanceColor.needsUpdate = true;
-    foliageLower.instanceMatrix.needsUpdate = true;
-    if (foliageLower.instanceColor) foliageLower.instanceColor.needsUpdate = true;
-    foliageUpper.instanceMatrix.needsUpdate = true;
-    if (foliageUpper.instanceColor) foliageUpper.instanceColor.needsUpdate = true;
-    foliageTop.instanceMatrix.needsUpdate = true;
-    if (foliageTop.instanceColor) foliageTop.instanceColor.needsUpdate = true;
-    group.add(trunkMesh);
-    group.add(foliageLower);
-    group.add(foliageUpper);
-    group.add(foliageTop);
+
+  const lampPositions: { x: number; z: number }[][] = Array.from(
+    { length: CHUNK_COUNT },
+    () => [],
+  );
+  for (const node of intersections) {
+    lampPositions[chunkIndexAt(node.x + 9.5, node.z + 9.5)].push({
+      x: node.x + 9.5,
+      z: node.z + 9.5,
+    });
+    lampPositions[chunkIndexAt(node.x - 9.5, node.z - 9.5)].push({
+      x: node.x - 9.5,
+      z: node.z - 9.5,
+    });
   }
 
-  const lampPositions: { x: number; z: number }[] = [];
+  const signalInstances: {
+    x: number;
+    z: number;
+    axis: 'x' | 'z';
+  }[][] = Array.from({ length: CHUNK_COUNT }, () => []);
   for (const node of intersections) {
-    lampPositions.push({ x: node.x + 9.5, z: node.z + 9.5 });
-    lampPositions.push({ x: node.x - 9.5, z: node.z - 9.5 });
-  }
-  if (lampPositions.length > 0) {
-    const poleMesh = makeInstanced(
-      new THREE.CylinderGeometry(0.07, 0.1, 4.6, 5),
-      new THREE.MeshStandardMaterial({ color: 0x2c2f33, roughness: 0.7 }),
-      lampPositions.length,
-    );
-    const headMesh = makeInstanced(
-      new THREE.BoxGeometry(0.9, 0.22, 0.3),
-      new THREE.MeshBasicMaterial({ color: 0xffe6a0 }),
-      lampPositions.length,
-    );
-    for (let i = 0; i < lampPositions.length; i += 1) {
-      const lamp = lampPositions[i];
-      const poleMatrix = new THREE.Matrix4().compose(
-        new THREE.Vector3(lamp.x, 2.3, lamp.z),
-        new THREE.Quaternion(),
-        new THREE.Vector3(1, 1, 1),
-      );
-      poleMesh.setMatrixAt(i, poleMatrix);
-      const headMatrix = new THREE.Matrix4().compose(
-        new THREE.Vector3(lamp.x, 4.62, lamp.z),
-        new THREE.Quaternion(),
-        new THREE.Vector3(1, 1, 1),
-      );
-      headMesh.setMatrixAt(i, headMatrix);
-    }
-    poleMesh.instanceMatrix.needsUpdate = true;
-    headMesh.instanceMatrix.needsUpdate = true;
-    group.add(poleMesh);
-    group.add(headMesh);
+    signalInstances[chunkIndexAt(node.x - 6.5, node.z + 6.5)].push({
+      x: node.x - 6.5,
+      z: node.z + 6.5,
+      axis: 'x',
+    });
+    signalInstances[chunkIndexAt(node.x + 6.5, node.z - 6.5)].push({
+      x: node.x + 6.5,
+      z: node.z - 6.5,
+      axis: 'z',
+    });
   }
 
-  const signalInstances: { x: number; z: number; axis: 'x' | 'z' }[] = [];
-  for (const node of intersections) {
-    signalInstances.push({ x: node.x - 6.5, z: node.z + 6.5, axis: 'x' });
-    signalInstances.push({ x: node.x + 6.5, z: node.z - 6.5, axis: 'z' });
+  const buildingMaterial = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    roughness: 0.78,
+  });
+  const roofMaterial = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    roughness: 0.72,
+    metalness: 0.15,
+  });
+  const windowMaterial = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    roughness: 0.45,
+    metalness: 0.35,
+  });
+  const trunkMaterial = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    roughness: 1,
+  });
+  const foliageMaterial = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    roughness: 0.95,
+  });
+  const poleMaterial = new THREE.MeshStandardMaterial({
+    color: 0x2c2f33,
+    roughness: 0.7,
+  });
+  const lampHeadMaterial = new THREE.MeshBasicMaterial({ color: 0xffe6a0 });
+  const redSignalMaterial = new THREE.MeshBasicMaterial({ color: 0xd33a2c });
+  const greenSignalMaterial = new THREE.MeshBasicMaterial({ color: 0x2fbf4f });
+  const signalChunks: {
+    red: THREE.InstancedMesh;
+    green: THREE.InstancedMesh;
+    instances: { x: number; z: number; axis: 'x' | 'z' }[];
+  }[] = [];
+
+  const chunks: THREE.Group[] = [];
+  for (let c = 0; c < CHUNK_COUNT; c += 1) {
+    const chunkGroup = new THREE.Group();
+    chunkGroup.name = `city-chunk-${c}`;
+    const chunkBuildings = buildingMatrices[c];
+    if (chunkBuildings.length > 0) {
+      const buildingMesh = makeInstanced(
+        new THREE.BoxGeometry(1, 1, 1),
+        buildingMaterial,
+        chunkBuildings.length,
+      );
+      buildingMesh.receiveShadow = true;
+      for (let i = 0; i < chunkBuildings.length; i += 1) {
+        buildingMesh.setMatrixAt(i, chunkBuildings[i]);
+        buildingMesh.setColorAt(i, buildingColors[c][i]);
+      }
+      buildingMesh.instanceMatrix.needsUpdate = true;
+      if (buildingMesh.instanceColor) buildingMesh.instanceColor.needsUpdate = true;
+      chunkGroup.add(buildingMesh);
+    }
+
+    const chunkRoofs = roofMatrices[c];
+    if (chunkRoofs.length > 0) {
+      const roofMesh = makeInstanced(
+        new THREE.BoxGeometry(1, 1, 1),
+        roofMaterial,
+        chunkRoofs.length,
+      );
+      roofMesh.receiveShadow = true;
+      for (let i = 0; i < chunkRoofs.length; i += 1) {
+        roofMesh.setMatrixAt(i, chunkRoofs[i]);
+        roofMesh.setColorAt(i, roofColors[c][i]);
+      }
+      roofMesh.instanceMatrix.needsUpdate = true;
+      if (roofMesh.instanceColor) roofMesh.instanceColor.needsUpdate = true;
+      chunkGroup.add(roofMesh);
+    }
+
+    const chunkWindows = windowMatrices[c];
+    if (chunkWindows.length > 0) {
+      const windowMesh = makeInstanced(
+        new THREE.BoxGeometry(1, 1, 1),
+        windowMaterial,
+        chunkWindows.length,
+      );
+      windowMesh.receiveShadow = true;
+      windowMesh.castShadow = false;
+      for (let i = 0; i < chunkWindows.length; i += 1) {
+        windowMesh.setMatrixAt(i, chunkWindows[i]);
+        windowMesh.setColorAt(i, windowColors[c][i]);
+      }
+      windowMesh.instanceMatrix.needsUpdate = true;
+      if (windowMesh.instanceColor) windowMesh.instanceColor.needsUpdate = true;
+      chunkGroup.add(windowMesh);
+    }
+
+    const chunkTrees = treeTrunkData[c];
+    if (chunkTrees.length > 0) {
+      const trunkMesh = makeInstanced(
+        new THREE.CylinderGeometry(0.2, 0.34, 2.7, 7),
+        trunkMaterial,
+        chunkTrees.length,
+      );
+      const foliageLower = makeInstanced(
+        new THREE.ConeGeometry(1.55, 2.4, 8),
+        foliageMaterial,
+        chunkTrees.length,
+      );
+      const foliageUpper = makeInstanced(
+        new THREE.ConeGeometry(1.05, 2.1, 8),
+        foliageMaterial,
+        chunkTrees.length,
+      );
+      const foliageTop = makeInstanced(
+        new THREE.ConeGeometry(0.6, 1.8, 8),
+        foliageMaterial,
+        chunkTrees.length,
+      );
+      trunkMesh.castShadow = false;
+      foliageLower.castShadow = false;
+      foliageUpper.castShadow = false;
+      foliageTop.castShadow = false;
+      for (let i = 0; i < chunkTrees.length; i += 1) {
+        const data = chunkTrees[i];
+        const s = data.scale;
+        const trunkMatrix = new THREE.Matrix4().compose(
+          new THREE.Vector3(data.x, 1.35 * s, data.z),
+          new THREE.Quaternion(),
+          new THREE.Vector3(1, s, 1),
+        );
+        trunkMesh.setMatrixAt(i, trunkMatrix);
+        trunkMesh.setColorAt(
+          i,
+          new THREE.Color(0x6a4a2f).multiplyScalar(0.88 + rand() * 0.25),
+        );
+        const lowerMatrix = new THREE.Matrix4().compose(
+          new THREE.Vector3(data.x, 3.9 * s, data.z),
+          new THREE.Quaternion(),
+          new THREE.Vector3(1.55 * s, s, 1.55 * s),
+        );
+        foliageLower.setMatrixAt(i, lowerMatrix);
+        foliageLower.setColorAt(
+          i,
+          new THREE.Color(0x37642f).multiplyScalar(0.85 + rand() * 0.35),
+        );
+        const upperMatrix = new THREE.Matrix4().compose(
+          new THREE.Vector3(data.x, 6.15 * s, data.z),
+          new THREE.Quaternion(),
+          new THREE.Vector3(1.05 * s, s, 1.05 * s),
+        );
+        foliageUpper.setMatrixAt(i, upperMatrix);
+        foliageUpper.setColorAt(
+          i,
+          new THREE.Color(0x3f7d3a).multiplyScalar(0.9 + rand() * 0.3),
+        );
+        const topMatrix = new THREE.Matrix4().compose(
+          new THREE.Vector3(data.x, 8.1 * s, data.z),
+          new THREE.Quaternion(),
+          new THREE.Vector3(0.6 * s, s, 0.6 * s),
+        );
+        foliageTop.setMatrixAt(i, topMatrix);
+        foliageTop.setColorAt(
+          i,
+          new THREE.Color(0x4a8a44).multiplyScalar(0.9 + rand() * 0.3),
+        );
+      }
+      trunkMesh.instanceMatrix.needsUpdate = true;
+      if (trunkMesh.instanceColor) trunkMesh.instanceColor.needsUpdate = true;
+      foliageLower.instanceMatrix.needsUpdate = true;
+      if (foliageLower.instanceColor) foliageLower.instanceColor.needsUpdate = true;
+      foliageUpper.instanceMatrix.needsUpdate = true;
+      if (foliageUpper.instanceColor) foliageUpper.instanceColor.needsUpdate = true;
+      foliageTop.instanceMatrix.needsUpdate = true;
+      if (foliageTop.instanceColor) foliageTop.instanceColor.needsUpdate = true;
+      chunkGroup.add(trunkMesh);
+      chunkGroup.add(foliageLower);
+      chunkGroup.add(foliageUpper);
+      chunkGroup.add(foliageTop);
+    }
+
+    const chunkLamps = lampPositions[c];
+    if (chunkLamps.length > 0) {
+      const poleMesh = makeInstanced(
+        new THREE.CylinderGeometry(0.07, 0.1, 4.6, 5),
+        poleMaterial,
+        chunkLamps.length,
+      );
+      const headMesh = makeInstanced(
+        new THREE.BoxGeometry(0.9, 0.22, 0.3),
+        lampHeadMaterial,
+        chunkLamps.length,
+      );
+      for (let i = 0; i < chunkLamps.length; i += 1) {
+        const lamp = chunkLamps[i];
+        const poleMatrix = new THREE.Matrix4().compose(
+          new THREE.Vector3(lamp.x, 2.3, lamp.z),
+          new THREE.Quaternion(),
+          new THREE.Vector3(1, 1, 1),
+        );
+        poleMesh.setMatrixAt(i, poleMatrix);
+        const headMatrix = new THREE.Matrix4().compose(
+          new THREE.Vector3(lamp.x, 4.62, lamp.z),
+          new THREE.Quaternion(),
+          new THREE.Vector3(1, 1, 1),
+        );
+        headMesh.setMatrixAt(i, headMatrix);
+      }
+      poleMesh.instanceMatrix.needsUpdate = true;
+      headMesh.instanceMatrix.needsUpdate = true;
+      chunkGroup.add(poleMesh);
+      chunkGroup.add(headMesh);
+    }
+
+    const chunkSignals = signalInstances[c];
+    if (chunkSignals.length > 0) {
+      const redSignals = makeInstanced(
+        new THREE.BoxGeometry(0.55, 0.75, 0.55),
+        redSignalMaterial,
+        chunkSignals.length,
+      );
+      const greenSignals = makeInstanced(
+        new THREE.BoxGeometry(0.55, 0.75, 0.55),
+        greenSignalMaterial,
+        chunkSignals.length,
+      );
+      chunkGroup.add(redSignals);
+      chunkGroup.add(greenSignals);
+      signalChunks.push({ red: redSignals, green: greenSignals, instances: chunkSignals });
+    }
+    chunks.push(chunkGroup);
   }
-  const redSignals = makeInstanced(
-    new THREE.BoxGeometry(0.55, 0.75, 0.55),
-    new THREE.MeshBasicMaterial({ color: 0xd33a2c }),
-    signalInstances.length,
-  );
-  const greenSignals = makeInstanced(
-    new THREE.BoxGeometry(0.55, 0.75, 0.55),
-    new THREE.MeshBasicMaterial({ color: 0x2fbf4f }),
-    signalInstances.length,
-  );
+  group.add(...chunks);
+
   const signalMatrix = new THREE.Matrix4();
   const updateSignals = (timeSec: number): void => {
-    for (let i = 0; i < signalInstances.length; i += 1) {
-      const signal = signalInstances[i];
-      const nodeIndex = intersections.findIndex(
-        (n) => Math.abs(n.x - signal.x) < 7 && Math.abs(n.z - signal.z) < 7,
-      );
-      const green = lightGreenFor(signal.axis, timeSec, nodeIndex);
-      signalMatrix.compose(
-        new THREE.Vector3(signal.x, 4.7, signal.z),
-        new THREE.Quaternion(),
-        new THREE.Vector3(1, green ? 0 : 1, 1),
-      );
-      redSignals.setMatrixAt(i, signalMatrix);
-      signalMatrix.compose(
-        new THREE.Vector3(signal.x, 4.7, signal.z),
-        new THREE.Quaternion(),
-        new THREE.Vector3(1, green ? 1 : 0, 1),
-      );
-      greenSignals.setMatrixAt(i, signalMatrix);
+    for (const signalChunk of signalChunks) {
+      for (let i = 0; i < signalChunk.instances.length; i += 1) {
+        const signal = signalChunk.instances[i];
+        const nodeIndex = intersections.findIndex(
+          (n) => Math.abs(n.x - signal.x) < 7 && Math.abs(n.z - signal.z) < 7,
+        );
+        const green = lightGreenFor(signal.axis, timeSec, nodeIndex);
+        signalMatrix.compose(
+          new THREE.Vector3(signal.x, 4.7, signal.z),
+          new THREE.Quaternion(),
+          new THREE.Vector3(1, green ? 0 : 1, 1),
+        );
+        signalChunk.red.setMatrixAt(i, signalMatrix);
+        signalMatrix.compose(
+          new THREE.Vector3(signal.x, 4.7, signal.z),
+          new THREE.Quaternion(),
+          new THREE.Vector3(1, green ? 1 : 0, 1),
+        );
+        signalChunk.green.setMatrixAt(i, signalMatrix);
+      }
+      signalChunk.red.instanceMatrix.needsUpdate = true;
+      signalChunk.green.instanceMatrix.needsUpdate = true;
     }
-    redSignals.instanceMatrix.needsUpdate = true;
-    greenSignals.instanceMatrix.needsUpdate = true;
   };
-  group.add(redSignals);
-  group.add(greenSignals);
+
+  const updateChunks = (px: number, pz: number): void => {
+    const radiusSq = WORLD.RENDER_DISTANCE * WORLD.RENDER_DISTANCE;
+    for (let c = 0; c < chunks.length; c += 1) {
+      const cx = (c % CHUNKS) * CHUNK_SIZE + CHUNK_SIZE / 2;
+      const cz = Math.floor(c / CHUNKS) * CHUNK_SIZE + CHUNK_SIZE / 2;
+      const dx = px - cx;
+      const dz = pz - cz;
+      chunks[c].visible = dx * dx + dz * dz <= radiusSq;
+    }
+  };
 
   const raceProps = new THREE.Group();
   raceProps.name = 'race-props';
@@ -768,6 +897,7 @@ export function buildCity(scene: THREE.Scene): City {
 
   const city: City = {
     group,
+    chunks,
     intersections,
     edges,
     lanes,
@@ -782,6 +912,7 @@ export function buildCity(scene: THREE.Scene): City {
     setRacePropsVisible,
     lightGreen: lightGreenFor,
     updateSignals,
+    updateChunks,
   };
 
   scene.add(group);
