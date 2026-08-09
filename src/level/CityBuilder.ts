@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { COLORS, RACE_CONFIG, WORLD } from '../core/Constants';
-import type { Aabb, LaneInfo } from '../core/types';
+import { COLORS, RACE_CONFIG, TREE_COLLIDER_RADIUS, WORLD } from '../core/Constants';
+import type { Aabb, CircleCollider, LaneInfo } from '../core/types';
 
 export interface CityIntersection {
   index: number;
@@ -23,10 +23,14 @@ export interface City {
   edges: CityEdge[];
   lanes: LaneInfo[];
   buildingColliders: Aabb[];
+  treeColliders: CircleCollider[];
+  raceBarriers: Aabb[];
   raceCheckpoints: THREE.Vector3[];
   raceStartSlots: THREE.Vector3[];
   raceStartHeading: number;
   bounds: Aabb;
+  raceProps: THREE.Group;
+  setRacePropsVisible(visible: boolean): void;
   lightGreen(axis: 'x' | 'z', timeSec: number, nodeIndex: number): boolean;
   updateSignals(timeSec: number): void;
 }
@@ -215,6 +219,7 @@ export function buildCity(scene: THREE.Scene): City {
   const windowMatrices: THREE.Matrix4[] = [];
   const windowColors: THREE.Color[] = [];
   const buildingColliders: Aabb[] = [];
+  const treeColliders: CircleCollider[] = [];
   const inset = WORLD.BUILDING_INSET;
   for (let j = 0; j < N; j += 1) {
     for (let i = 0; i < N; i += 1) {
@@ -372,6 +377,7 @@ export function buildCity(scene: THREE.Scene): City {
       const px = a.x + ux * t + rx * side * offset + (rand() - 0.5) * 2.4;
       const pz = a.z + uz * t + rz * side * offset + (rand() - 0.5) * 2.4;
       treeTrunkData.push({ x: px, z: pz, scale: 0.8 + rand() * 0.7 });
+      treeColliders.push({ x: px, z: pz, radius: TREE_COLLIDER_RADIUS });
     }
   }
   if (treeTrunkData.length > 0) {
@@ -395,10 +401,10 @@ export function buildCity(scene: THREE.Scene): City {
       new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95 }),
       treeTrunkData.length,
     );
-    trunkMesh.castShadow = true;
-    foliageLower.castShadow = true;
-    foliageUpper.castShadow = true;
-    foliageTop.castShadow = true;
+    trunkMesh.castShadow = false;
+    foliageLower.castShadow = false;
+    foliageUpper.castShadow = false;
+    foliageTop.castShadow = false;
     for (let i = 0; i < treeTrunkData.length; i += 1) {
       const data = treeTrunkData[i];
       const s = data.scale;
@@ -533,6 +539,9 @@ export function buildCity(scene: THREE.Scene): City {
   group.add(redSignals);
   group.add(greenSignals);
 
+  const raceProps = new THREE.Group();
+  raceProps.name = 'race-props';
+
   const startI = Math.floor(N / 2);
   const checkpoints: THREE.Vector3[] = [];
   const at = (x: number, z: number): THREE.Vector3 => new THREE.Vector3(x, 0, z);
@@ -541,6 +550,203 @@ export function buildCity(scene: THREE.Scene): City {
   for (let i = N - 1; i >= 0; i -= 1) checkpoints.push(at(i * B, 0));
   for (let j = 1; j < N; j += 1) checkpoints.push(at(0, j * B));
   for (let i = 0; i < startI; i += 1) checkpoints.push(at(i * B, N * B));
+
+  const raceBarriers: Aabb[] = [];
+  const blockLength = 4.2;
+  const barrierMatrices: THREE.Matrix4[] = [];
+  const barrierColors: THREE.Color[] = [];
+  const startGapMin = startI * B - 31;
+  const startGapMax = startI * B + 31;
+  for (let ci = 0; ci < checkpoints.length; ci += 1) {
+    const a = checkpoints[ci];
+    const b = checkpoints[(ci + 1) % checkpoints.length];
+    const dx = b.x - a.x;
+    const dz = b.z - a.z;
+    const len = Math.hypot(dx, dz);
+    const ux = dx / len;
+    const uz = dz / len;
+    const nx = -uz;
+    const nz = ux;
+    const cross = dx * nz - dz * nx;
+    for (const side of cross > 0 ? [1, -1] : [-1, 1]) {
+      const bx = a.x + nx * (side * RACE_CONFIG.BARRIER_OFFSET);
+      const bz = a.z + nz * (side * RACE_CONFIG.BARRIER_OFFSET);
+      let start = 0;
+      let end = len;
+      if (ci === 0 && side === 1) {
+        const gapA = startGapMin - (a.x * ux + a.z * uz);
+        const gapB = startGapMax - (a.x * ux + a.z * uz);
+        if (gapA > start && gapA < end) end = Math.min(end, gapA);
+        if (gapB > start && gapB < end) start = Math.max(start, gapB);
+      }
+      if (end - start < 2) continue;
+      const lowX = bx + ux * start;
+      const lowZ = bz + uz * start;
+      const highX = bx + ux * end;
+      const highZ = bz + uz * end;
+      raceBarriers.push({
+        minX: Math.min(lowX, highX) - RACE_CONFIG.BARRIER_WIDTH / 2 - RACE_CONFIG.BARRIER_EXTRA,
+        maxX: Math.max(lowX, highX) + RACE_CONFIG.BARRIER_WIDTH / 2 + RACE_CONFIG.BARRIER_EXTRA,
+        minZ: Math.min(lowZ, highZ) - RACE_CONFIG.BARRIER_WIDTH / 2 - RACE_CONFIG.BARRIER_EXTRA,
+        maxZ: Math.max(lowZ, highZ) + RACE_CONFIG.BARRIER_WIDTH / 2 + RACE_CONFIG.BARRIER_EXTRA,
+      });
+      for (let t = start; t < end; t += blockLength) {
+        const bxPos = bx + ux * (t + blockLength / 2);
+        const bzPos = bz + uz * (t + blockLength / 2);
+        barrierMatrices.push(
+          new THREE.Matrix4().compose(
+            new THREE.Vector3(bxPos, RACE_CONFIG.BARRIER_HEIGHT / 2, bzPos),
+            new THREE.Quaternion().setFromAxisAngle(
+              new THREE.Vector3(0, 1, 0),
+              Math.atan2(ux, uz),
+            ),
+            new THREE.Vector3(Math.min(blockLength, end - t), RACE_CONFIG.BARRIER_HEIGHT, RACE_CONFIG.BARRIER_WIDTH),
+          ),
+        );
+        barrierColors.push(new THREE.Color(ci % 2 === 0 ? 0xd9342f : 0xe8e8e8));
+      }
+    }
+
+    const mouthBarrier = (
+      x: number,
+      z: number,
+      rotationY: number,
+      length: number,
+    ): void => {
+      barrierMatrices.push(
+        new THREE.Matrix4().compose(
+          new THREE.Vector3(x, RACE_CONFIG.BARRIER_HEIGHT / 2, z),
+          new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), rotationY),
+          new THREE.Vector3(length, RACE_CONFIG.BARRIER_HEIGHT, RACE_CONFIG.BARRIER_WIDTH),
+        ),
+      );
+      barrierColors.push(new THREE.Color(ci % 2 === 0 ? 0xd9342f : 0xe8e8e8));
+      const half = RACE_CONFIG.BARRIER_WIDTH / 2 + RACE_CONFIG.BARRIER_EXTRA;
+      if (rotationY === 0) {
+        raceBarriers.push({
+          minX: x - length / 2 - RACE_CONFIG.BARRIER_EXTRA,
+          maxX: x + length / 2 + RACE_CONFIG.BARRIER_EXTRA,
+          minZ: z - half,
+          maxZ: z + half,
+        });
+      } else {
+        raceBarriers.push({
+          minX: x - half,
+          maxX: x + half,
+          minZ: z - length / 2 - RACE_CONFIG.BARRIER_EXTRA,
+          maxZ: z + length / 2 + RACE_CONFIG.BARRIER_EXTRA,
+        });
+      }
+    };
+    const mouthLen = WORLD.ROAD_WIDTH + WORLD.SIDEWALK_WIDTH * 2 + 2;
+    const p = a;
+    if (Math.abs(p.z - N * B) < 0.1 && p.x > B - 0.1 && p.x < N * B - 0.1) {
+      mouthBarrier(p.x, N * B - 10, 0, mouthLen);
+    } else if (Math.abs(p.x - N * B) < 0.1 && p.z > B - 0.1 && p.z < N * B - 0.1) {
+      mouthBarrier(N * B - 10, p.z, Math.PI / 2, mouthLen);
+    } else if (Math.abs(p.z) < 0.1 && p.x > B - 0.1 && p.x < N * B - 0.1) {
+      mouthBarrier(p.x, 10, 0, mouthLen);
+    } else if (Math.abs(p.x) < 0.1 && p.z > B - 0.1 && p.z < N * B - 0.1) {
+      mouthBarrier(10, p.z, Math.PI / 2, mouthLen);
+    }
+  }
+  if (barrierMatrices.length > 0) {
+    const barrierMesh = makeInstanced(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6 }),
+      barrierMatrices.length,
+    );
+    barrierMesh.castShadow = true;
+    barrierMesh.receiveShadow = true;
+    for (let i = 0; i < barrierMatrices.length; i += 1) {
+      barrierMesh.setMatrixAt(i, barrierMatrices[i]);
+      barrierMesh.setColorAt(i, barrierColors[i]);
+    }
+    barrierMesh.instanceMatrix.needsUpdate = true;
+    if (barrierMesh.instanceColor) barrierMesh.instanceColor.needsUpdate = true;
+    raceProps.add(barrierMesh);
+  }
+
+  const poleMatrices: THREE.Matrix4[] = [];
+  const flagMatrices: THREE.Matrix4[] = [];
+  const flagColors: THREE.Color[] = [];
+  const flagPalette = [0xd9342f, 0x2f6fd0, 0x2f9e4f, 0xe0a63a];
+  for (let ci = 0; ci < checkpoints.length; ci += 1) {
+    const p = checkpoints[ci];
+    const q = checkpoints[(ci + 1) % checkpoints.length];
+    const dx = q.x - p.x;
+    const dz = q.z - p.z;
+    const len = Math.hypot(dx, dz);
+    const ux = dx / len;
+    const uz = dz / len;
+    const nx = -uz;
+    const nz = ux;
+    const heading = Math.atan2(ux, uz);
+    for (const side of [-1, 1]) {
+      const fx = p.x + nx * (side * RACE_CONFIG.FLAG_OFFSET);
+      const fz = p.z + nz * (side * RACE_CONFIG.FLAG_OFFSET);
+      poleMatrices.push(
+        new THREE.Matrix4().compose(
+          new THREE.Vector3(fx, 1.35, fz),
+          new THREE.Quaternion(),
+          new THREE.Vector3(1, 1, 1),
+        ),
+      );
+      flagMatrices.push(
+        new THREE.Matrix4().compose(
+          new THREE.Vector3(fx, 1.85, fz),
+          new THREE.Quaternion().setFromAxisAngle(
+            new THREE.Vector3(0, 1, 0),
+            heading + (side > 0 ? Math.PI : 0),
+          ),
+          new THREE.Vector3(1, 1, 1),
+        ),
+      );
+      flagColors.push(new THREE.Color(flagPalette[(ci + (side > 0 ? 0 : 1)) % flagPalette.length]));
+    }
+  }
+  if (poleMatrices.length > 0) {
+    const flagPoles = makeInstanced(
+      new THREE.CylinderGeometry(0.055, 0.07, 2.7, 6),
+      new THREE.MeshStandardMaterial({ color: 0xcfcfcf, roughness: 0.45, metalness: 0.6 }),
+      poleMatrices.length,
+    );
+    flagPoles.castShadow = true;
+    for (let i = 0; i < poleMatrices.length; i += 1) {
+      flagPoles.setMatrixAt(i, poleMatrices[i]);
+    }
+    flagPoles.instanceMatrix.needsUpdate = true;
+    raceProps.add(flagPoles);
+
+    const flagMesh = makeInstanced(
+      new THREE.BufferGeometry(),
+      new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        roughness: 0.7,
+        side: THREE.DoubleSide,
+      }),
+      flagMatrices.length,
+    );
+    const triangle = new THREE.BufferGeometry();
+    triangle.setAttribute(
+      'position',
+      new THREE.Float32BufferAttribute([0, 0, 0, 0.8, 0, 0, 0, 0.52, 0.55], 3),
+    );
+    triangle.computeVertexNormals();
+    flagMesh.geometry = triangle;
+    for (let i = 0; i < flagMatrices.length; i += 1) {
+      flagMesh.setMatrixAt(i, flagMatrices[i]);
+      flagMesh.setColorAt(i, flagColors[i]);
+    }
+    flagMesh.instanceMatrix.needsUpdate = true;
+    if (flagMesh.instanceColor) flagMesh.instanceColor.needsUpdate = true;
+    raceProps.add(flagMesh);
+  }
+  raceProps.visible = false;
+  group.add(raceProps);
+  const setRacePropsVisible = (visible: boolean): void => {
+    raceProps.visible = visible;
+  };
 
   const raceStartSlots: THREE.Vector3[] = [];
   for (let k = 0; k < RACE_CONFIG.TOTAL_RACERS; k += 1) {
@@ -566,10 +772,14 @@ export function buildCity(scene: THREE.Scene): City {
     edges,
     lanes,
     buildingColliders,
+    treeColliders,
+    raceBarriers,
     raceCheckpoints: checkpoints,
     raceStartSlots,
     raceStartHeading: Math.PI / 2,
     bounds: { minX: -40, maxX: N * B + 40, minZ: -40, maxZ: N * B + 40 },
+    raceProps,
+    setRacePropsVisible,
     lightGreen: lightGreenFor,
     updateSignals,
   };

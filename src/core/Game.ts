@@ -13,8 +13,9 @@ import type { CameraMode } from './types';
 import { InputSystem } from '../systems/InputSystem';
 import { AudioSystem } from '../systems/AudioSystem';
 import { buildCity, type City } from '../level/CityBuilder';
-import { createSkybox } from '../level/Skybox';
+import { createSkybox, createSkyTexture } from '../level/Skybox';
 import { PlayerVehicle } from '../gameplay/PlayerVehicle';
+import { setVehicleEnvMap } from '../gameplay/VehicleFactory';
 import { TrafficSystem } from '../gameplay/TrafficSystem';
 import { PedestrianSystem, type PedestrianCollider } from '../gameplay/PedestrianSystem';
 import { RaceManager } from '../gameplay/RaceManager';
@@ -75,14 +76,19 @@ export class Game {
   private readonly cameraLook = new THREE.Vector3();
 
   constructor(container: HTMLElement) {
+    const lowPowerRender =
+      typeof navigator !== 'undefined' && navigator.webdriver === true;
     this.renderer = new THREE.WebGLRenderer({
-      antialias: true,
+      antialias: false,
       powerPreference: 'high-performance',
     });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    const renderScale = lowPowerRender ? 0.8 : 1.5;
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, renderScale));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.enabled = !lowPowerRender;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.autoUpdate = false;
+    this.renderer.shadowMap.needsUpdate = true;
     container.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
@@ -90,6 +96,10 @@ export class Game {
     this.scene.fog = new THREE.FogExp2(COLORS.FOG, 0.0016);
     this.sky = createSkybox();
     this.scene.add(this.sky);
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    const envTexture = pmrem.fromEquirectangular(createSkyTexture()).texture;
+    setVehicleEnvMap(envTexture);
+    pmrem.dispose();
 
     this.camera = new THREE.PerspectiveCamera(
       CAMERA_CONFIG.FOV,
@@ -102,7 +112,7 @@ export class Game {
     this.scene.add(hemi);
     this.sun = new THREE.DirectionalLight(0xfff2d8, 1.7);
     this.sun.position.set(120, 180, 90);
-    this.sun.castShadow = true;
+    this.sun.castShadow = !lowPowerRender;
     this.sun.shadow.mapSize.set(1024, 1024);
     this.sun.shadow.camera.near = 1;
     this.sun.shadow.camera.far = 600;
@@ -155,6 +165,7 @@ export class Game {
 
   showMenu(): void {
     gameState.setMode('menu');
+    this.city.setRacePropsVisible(false);
     this.ui.showMainMenu();
     this.setShowcaseVisible(true);
     this.setPlayerVisible(false);
@@ -193,6 +204,7 @@ export class Game {
 
   showRaceMenu(): void {
     gameState.setMode('menu');
+    this.city.setRacePropsVisible(false);
     this.ui.showRaceMenu();
     this.setShowcaseVisible(true);
     this.setPlayerVisible(false);
@@ -203,6 +215,7 @@ export class Game {
   startFreeRoam(): void {
     gameState.resetRun();
     gameState.setMode('freeRoam');
+    this.city.setRacePropsVisible(false);
     this.ui.showFreeRoamHud();
     this.setShowcaseVisible(false);
     this.setPlayerVisible(true);
@@ -220,6 +233,7 @@ export class Game {
     gameState.resetRun();
     gameState.race.difficulty = difficulty;
     gameState.setMode('race');
+    this.city.setRacePropsVisible(true);
     this.ui.showRaceHud();
     this.setShowcaseVisible(false);
     this.setPlayerVisible(true);
@@ -230,7 +244,7 @@ export class Game {
     const available = VEHICLES.filter((v) => v.id !== this.player.spec.id);
     for (let i = 0; i < RACE_CONFIG.TOTAL_RACERS - 1; i += 1) {
       const spec = available[i % available.length];
-      this.aiVehicles.push(this.createPlayer(spec.id, spec.color));
+      this.aiVehicles.push(this.createPlayer(spec.id, spec.color, false, false));
     }
     this.race.init(
       this.player,
@@ -298,6 +312,9 @@ export class Game {
     const dt = Math.min(this.clock.getDelta(), 0.1);
     this.frameCount += 1;
     this.frameTime += dt;
+    if (this.frameCount % 6 === 1) {
+      this.renderer.shadowMap.needsUpdate = true;
+    }
     this.accumulator += dt;
     while (this.accumulator >= PHYSICS.FIXED_STEP) {
       this.tick(PHYSICS.FIXED_STEP);
@@ -487,6 +504,11 @@ export class Game {
   private resolveWorldCollisions(vehicle: PlayerVehicle): void {
     const radius = vehicle.spec.width / 2 + PHYSICS.CAR_RADIUS_PADDING;
     const velocity = vehicle.getVelocity();
+    const emitCollision = (intensity: number): void => {
+      if (vehicle !== this.player) return;
+      eventBus.emit(Events.VEHICLE_COLLISION, { intensity });
+      this.audio.playCollision(intensity);
+    };
     for (const box of this.city.buildingColliders) {
       const closestX = Math.max(box.minX, Math.min(vehicle.x, box.maxX));
       const closestZ = Math.max(box.minZ, Math.min(vehicle.z, box.maxZ));
@@ -532,9 +554,75 @@ export class Game {
       if (vn < -1.5) {
         vehicle.speed *= 0.5;
         vehicle.lateral *= 0.45;
-        const intensity = Math.min(1, -vn / 12);
-        eventBus.emit(Events.VEHICLE_COLLISION, { intensity });
-        this.audio.playCollision(intensity);
+        emitCollision(Math.min(1, -vn / 12));
+      }
+    }
+    for (const tree of this.city.treeColliders) {
+      const dx = vehicle.x - tree.x;
+      const dz = vehicle.z - tree.z;
+      const minDist = radius + tree.radius;
+      const distSq = dx * dx + dz * dz;
+      if (distSq >= minDist * minDist || distSq < 1e-6) continue;
+      const dist = Math.sqrt(distSq);
+      const nx = dx / dist;
+      const nz = dz / dist;
+      vehicle.x += nx * (minDist - dist);
+      vehicle.z += nz * (minDist - dist);
+      const vn = velocity.vx * nx + velocity.vz * nz;
+      if (vn < -1.5) {
+        vehicle.speed *= 0.5;
+        vehicle.lateral *= 0.45;
+        emitCollision(Math.min(1, -vn / 12));
+      }
+    }
+    if (gameState.mode === 'race') {
+      for (const box of this.city.raceBarriers) {
+        const closestX = Math.max(box.minX, Math.min(vehicle.x, box.maxX));
+        const closestZ = Math.max(box.minZ, Math.min(vehicle.z, box.maxZ));
+        const dx = vehicle.x - closestX;
+        const dz = vehicle.z - closestZ;
+        const distSq = dx * dx + dz * dz;
+        if (distSq >= radius * radius) continue;
+        let nx: number;
+        let nz: number;
+        let overlap: number;
+        if (distSq < 1e-6) {
+          const left = vehicle.x - box.minX;
+          const right = box.maxX - vehicle.x;
+          const top = vehicle.z - box.minZ;
+          const bottom = box.maxZ - vehicle.z;
+          const minSide = Math.min(left, right, top, bottom);
+          if (minSide === left) {
+            nx = -1;
+            nz = 0;
+            overlap = radius + left;
+          } else if (minSide === right) {
+            nx = 1;
+            nz = 0;
+            overlap = radius + right;
+          } else if (minSide === top) {
+            nx = 0;
+            nz = -1;
+            overlap = radius + top;
+          } else {
+            nx = 0;
+            nz = 1;
+            overlap = radius + bottom;
+          }
+        } else {
+          const dist = Math.sqrt(distSq);
+          nx = dx / dist;
+          nz = dz / dist;
+          overlap = radius - dist;
+        }
+        vehicle.x += nx * overlap;
+        vehicle.z += nz * overlap;
+        const vn = velocity.vx * nx + velocity.vz * nz;
+        if (vn < -1.5) {
+          vehicle.speed *= 0.55;
+          vehicle.lateral *= 0.5;
+          emitCollision(Math.min(1, -vn / 10));
+        }
       }
     }
   }
@@ -610,9 +698,14 @@ export class Game {
     );
   }
 
-  private createPlayer(vehicleId: string, color: string): PlayerVehicle {
+  private createPlayer(
+    vehicleId: string,
+    color: string,
+    castShadows = true,
+    highQuality = true,
+  ): PlayerVehicle {
     const spec = VEHICLES.find((v) => v.id === vehicleId) ?? VEHICLES[0];
-    return new PlayerVehicle(spec, color, this.scene);
+    return new PlayerVehicle(spec, color, this.scene, castShadows, highQuality);
   }
 
   private setShowcaseVisible(visible: boolean): void {

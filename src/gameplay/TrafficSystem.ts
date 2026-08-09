@@ -246,7 +246,7 @@ export class TrafficSystem {
 
       const spec = VEHICLES[Math.floor(Math.random() * VEHICLES.length)];
       const color = spec.colorOptions[Math.floor(Math.random() * spec.colorOptions.length)];
-      const vehicle = new PlayerVehicle(spec, color, this.scene);
+      const vehicle = new PlayerVehicle(spec, color, this.scene, false, false);
       const heading = Math.atan2(ux, uz);
       vehicle.setKinematic(px, pz, heading, 0);
       this.npcs.push({

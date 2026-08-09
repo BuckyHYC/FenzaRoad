@@ -17,6 +17,10 @@ playwright-report
 
 # Debug screenshots
 debug-*.png
+check-*.png
+check-visual.mjs
+fps-diag.mjs
+race-diag.mjs
 diag.mjs
 
 # Editor

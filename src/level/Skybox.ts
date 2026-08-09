@@ -15,7 +15,7 @@ function drawCloud(
   ctx.fill();
 }
 
-export function createSkybox(): THREE.Mesh {
+export function createSkyTexture(): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
   canvas.width = 1024;
   canvas.height = 512;
@@ -54,7 +54,11 @@ export function createSkybox(): THREE.Mesh {
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
 
+export function createSkybox(): THREE.Mesh {
+  const texture = createSkyTexture();
   const sky = new THREE.Mesh(
     new THREE.SphereGeometry(1600, 32, 16),
     new THREE.MeshBasicMaterial({

@@ -29,6 +29,12 @@ export interface Aabb {
   maxZ: number;
 }
 
+export interface CircleCollider {
+  x: number;
+  z: number;
+  radius: number;
+}
+
 export interface LaneInfo {
   edgeId: number;
   fromNode: number;

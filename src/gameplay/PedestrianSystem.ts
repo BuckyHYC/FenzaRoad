@@ -59,79 +59,111 @@ function geometry(key: string, create: () => THREE.BufferGeometry): THREE.Buffer
 function buildPedestrian(): THREE.Group {
   const shirtColor = SHIRT_COLORS[Math.floor(Math.random() * SHIRT_COLORS.length)];
   const pantsColor = PANTS_COLORS[Math.floor(Math.random() * PANTS_COLORS.length)];
+  const skinColor = ['#e8b88e', '#c98d5f', '#a96f45', '#f0c9a0'][
+    Math.floor(Math.random() * 4)
+  ];
+  const hairColor = ['#241a12', '#3a2b1d', '#5a4632', '#241f26', '#8a4b2a'][
+    Math.floor(Math.random() * 5)
+  ];
   const group = new THREE.Group();
   const model = new THREE.Group();
   model.scale.setScalar(PEDESTRIAN_CONFIG.MODEL_SCALE);
 
-  const bodyGeo = geometry(
-    'ped-body',
-    () => new THREE.BoxGeometry(0.44, 0.6, 0.24),
+  const skinMat = material(
+    `ped-skin:${skinColor}`,
+    () => new THREE.MeshStandardMaterial({ color: skinColor, roughness: 0.72 }),
+  );
+  const hairMat = material(
+    `ped-hair:${hairColor}`,
+    () => new THREE.MeshStandardMaterial({ color: hairColor, roughness: 0.9 }),
+  );
+
+  const torsoGeo = geometry(
+    'ped-torso',
+    () => new THREE.CapsuleGeometry(0.2, 0.3, 4, 8),
   );
   const body = new THREE.Mesh(
-    bodyGeo,
+    torsoGeo,
     material(
       `ped-shirt:${shirtColor}`,
       () => new THREE.MeshStandardMaterial({ color: shirtColor, roughness: 0.85 }),
     ),
   );
-  body.position.y = 0.85;
+  body.rotation.z = 0.06;
+  body.position.y = 0.95;
   body.castShadow = true;
 
-  const legGeo = geometry(
-    'ped-leg',
-    () => new THREE.BoxGeometry(0.13, 0.55, 0.14),
-  );
+  const legGeo = geometry('ped-leg', () => new THREE.CapsuleGeometry(0.07, 0.34, 4, 6));
   const legMat = material(
     `ped-pants:${pantsColor}`,
     () => new THREE.MeshStandardMaterial({ color: pantsColor, roughness: 0.9 }),
   );
-  const leftLeg = new THREE.Mesh(legGeo, legMat);
-  leftLeg.position.set(-0.11, 0.275, 0);
-  leftLeg.castShadow = true;
-  const rightLeg = new THREE.Mesh(legGeo, legMat);
-  rightLeg.position.set(0.11, 0.275, 0);
-  rightLeg.castShadow = true;
-
-  const upperArmGeo = geometry(
-    'ped-arm',
-    () => new THREE.BoxGeometry(0.11, 0.46, 0.13),
+  const shoeGeo = geometry(
+    'ped-shoe',
+    () => new THREE.BoxGeometry(0.1, 0.08, 0.2),
   );
+  const shoeMat = material(
+    'ped-shoe',
+    () => new THREE.MeshStandardMaterial({ color: 0x23262b, roughness: 0.85 }),
+  );
+  const leftLegPivot = new THREE.Group();
+  leftLegPivot.position.set(-0.11, 0.66, 0.02);
+  const leftLeg = new THREE.Mesh(legGeo, legMat);
+  leftLeg.position.set(0, -0.26, 0);
+  leftLeg.castShadow = true;
+  const leftShoe = new THREE.Mesh(shoeGeo, shoeMat);
+  leftShoe.position.set(0, -0.48, 0.05);
+  leftShoe.castShadow = true;
+  leftLegPivot.add(leftLeg, leftShoe);
+
+  const rightLegPivot = new THREE.Group();
+  rightLegPivot.position.set(0.11, 0.66, 0.02);
+  const rightLeg = new THREE.Mesh(legGeo, legMat);
+  rightLeg.position.set(0, -0.26, 0);
+  rightLeg.castShadow = true;
+  const rightShoe = new THREE.Mesh(shoeGeo, shoeMat);
+  rightShoe.position.set(0, -0.48, 0.05);
+  rightShoe.castShadow = true;
+  rightLegPivot.add(rightLeg, rightShoe);
+
+  const armGeo = geometry('ped-arm', () => new THREE.CapsuleGeometry(0.055, 0.24, 4, 6));
   const armMat = material(
     `ped-shirt:${shirtColor}`,
     () => new THREE.MeshStandardMaterial({ color: shirtColor, roughness: 0.85 }),
   );
-  const shoulderPivot = new THREE.Group();
-  shoulderPivot.position.y = 1.18;
-  const leftArm = new THREE.Mesh(upperArmGeo, armMat);
-  leftArm.position.set(-0.26, -0.22, 0);
+  const armPivot = new THREE.Group();
+  armPivot.position.set(0, 1.16, -0.02);
+  const leftArm = new THREE.Mesh(armGeo, armMat);
+  leftArm.position.set(-0.27, -0.17, 0);
   leftArm.castShadow = true;
-  const rightArm = new THREE.Mesh(upperArmGeo, armMat);
-  rightArm.position.set(0.26, -0.22, 0);
+  const rightArm = new THREE.Mesh(armGeo, armMat);
+  rightArm.position.set(0.27, -0.17, 0);
   rightArm.castShadow = true;
-  shoulderPivot.add(leftArm, rightArm);
+  armPivot.add(leftArm, rightArm);
 
   const headGeo = geometry(
     'ped-head',
-    () => new THREE.SphereGeometry(0.16, 10, 8),
+    () => new THREE.SphereGeometry(0.15, 12, 10),
   );
-  const head = new THREE.Mesh(
-    headGeo,
-    material(
-      'ped-skin',
-      () => new THREE.MeshStandardMaterial({ color: 0xd9a878, roughness: 0.8 }),
-    ),
-  );
-  head.position.y = 0.28;
+  const head = new THREE.Mesh(headGeo, skinMat);
+  head.position.y = 0.02;
   head.castShadow = true;
+  const hairGeo = geometry(
+    'ped-hair',
+    () => new THREE.SphereGeometry(0.155, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.62),
+  );
+  const hair = new THREE.Mesh(hairGeo, hairMat);
+  hair.position.y = 0.09;
+  hair.scale.y = 0.82;
   const headGroup = new THREE.Group();
-  headGroup.position.y = 1.2;
-  headGroup.add(head);
+  headGroup.position.y = 1.32;
+  headGroup.add(head, hair);
 
-  model.add(body, leftLeg, rightLeg, shoulderPivot, headGroup);
+  model.add(body, leftLegPivot, rightLegPivot, armPivot, headGroup);
   group.add(model);
-  group.userData.leftLeg = leftLeg;
-  group.userData.rightLeg = rightLeg;
-  group.userData.shoulderPivot = shoulderPivot;
+  group.userData.leftLegPivot = leftLegPivot;
+  group.userData.rightLegPivot = rightLegPivot;
+  group.userData.armPivot = armPivot;
   group.userData.headGroup = headGroup;
   return group;
 }
@@ -235,7 +267,17 @@ export class PedestrianSystem {
       uz * t * len +
       rz * (ped.side * PEDESTRIAN_CONFIG.SIDEWALK_OFFSET + ped.jitter);
     ped.heading = Math.atan2(ux * ped.direction, uz * ped.direction);
-    ped.phase += dt * 8;
+    ped.phase += dt * 5.2 * (0.75 + ped.speed * 0.3);
+    for (const tree of this.city.treeColliders) {
+      const tdx = ped.x - tree.x;
+      const tdz = ped.z - tree.z;
+      const minDist = ped.radius + tree.radius;
+      const distSq = tdx * tdx + tdz * tdz;
+      if (distSq >= minDist * minDist || distSq < 1e-6) continue;
+      const dist = Math.sqrt(distSq);
+      ped.x += (tdx / dist) * (minDist - dist);
+      ped.z += (tdz / dist) * (minDist - dist);
+    }
   }
 
   private checkVehicleCollisions(
@@ -266,21 +308,27 @@ export class PedestrianSystem {
       group.position.set(ped.x, 0.08 - 0.04 * ease, ped.z);
       group.rotation.set(-Math.PI * 0.5 * ease, ped.heading + Math.PI, 0);
       group.scale.setScalar(Math.max(0.001, 1 - ease * 0.12));
-      group.userData.leftLeg.rotation.x = 0;
-      group.userData.rightLeg.rotation.x = 0;
-      group.userData.shoulderPivot.rotation.x = 0;
+      group.userData.leftLegPivot.rotation.x = 0;
+      group.userData.rightLegPivot.rotation.x = 0;
+      group.userData.armPivot.rotation.x = 0;
       group.userData.headGroup.rotation.z = 0;
     } else {
-      const swing = ped.moving ? Math.sin(ped.phase) : 0;
-      group.userData.leftLeg.rotation.x = swing * 0.55;
-      group.userData.rightLeg.rotation.x = -swing * 0.55;
-      group.userData.shoulderPivot.rotation.x = -swing * 0.28;
-      group.userData.headGroup.rotation.z = Math.sin(ped.phase * 0.5) * 0.06;
+      const stride = ped.moving ? Math.sin(ped.phase) : 0;
+      const amplitude = ped.moving ? 0.62 : 0;
+      group.userData.leftLegPivot.rotation.x = stride * amplitude;
+      group.userData.rightLegPivot.rotation.x = -stride * amplitude;
+      group.userData.armPivot.rotation.x = -stride * amplitude * 0.55;
+      group.userData.leftLegPivot.rotation.z = ped.moving ? 0.06 : 0;
+      group.userData.rightLegPivot.rotation.z = ped.moving ? -0.06 : 0;
+      group.userData.headGroup.rotation.z = Math.sin(ped.phase * 0.5) * 0.08;
+      group.userData.headGroup.rotation.x = ped.moving
+        ? Math.max(0, Math.sin(ped.phase)) * 0.08
+        : 0;
       group.position.set(ped.x, 0, ped.z);
       group.rotation.set(
-        ped.moving ? Math.abs(Math.cos(ped.phase)) * 0.018 : 0,
+        ped.moving ? Math.abs(Math.cos(ped.phase)) * 0.035 : 0,
         ped.heading,
-        ped.moving ? Math.sin(ped.phase) * 0.03 : 0,
+        ped.moving ? Math.sin(ped.phase) * 0.025 : 0,
       );
       group.scale.setScalar(1);
     }

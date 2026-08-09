@@ -25,9 +25,15 @@ export class PlayerVehicle {
   private steerAngle = 0;
   private wheelRoll = 0;
 
-  constructor(spec: VehicleSpec, color: string, scene: THREE.Scene) {
+  constructor(
+    spec: VehicleSpec,
+    color: string,
+    scene: THREE.Scene,
+    castShadows = true,
+    highQuality = true,
+  ) {
     this.spec = spec;
-    this.visuals = buildVehicle(spec, color);
+    this.visuals = buildVehicle(spec, color, castShadows, highQuality);
     scene.add(this.visuals.group);
   }
 

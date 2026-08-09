@@ -43,6 +43,9 @@ interface StaticPart {
   y: number;
   z: number;
   key: MaterialKey;
+  rotationX?: number;
+  rotationY?: number;
+  rotationZ?: number;
 }
 
 interface StaticGeometrySet {
@@ -117,6 +120,23 @@ const STYLE_PROFILES: Record<BodyStyle, StyleProfile> = {
 const materialCache = new Map<string, THREE.Material>();
 const partGeometryCache = new Map<string, THREE.BufferGeometry>();
 const staticGeometryCache = new Map<string, StaticGeometrySet>();
+let vehicleEnvMap: THREE.Texture | null = null;
+
+export function setVehicleEnvMap(texture: THREE.Texture): void {
+  vehicleEnvMap = texture;
+  for (const [key, value] of materialCache) {
+    if (
+      key.startsWith('body:') ||
+      key.startsWith('body-npc:') ||
+      key === 'glass' ||
+      key === 'glass-npc'
+    ) {
+      const material = value as THREE.MeshStandardMaterial;
+      material.envMap = texture;
+      material.needsUpdate = true;
+    }
+  }
+}
 
 function material(key: string, create: () => THREE.Material): THREE.Material {
   let cached = materialCache.get(key);
@@ -195,7 +215,14 @@ function mergeParts(parts: StaticPart[]): StaticGeometrySet {
     }
     const transformed = matching.map((part) => {
       const geo = part.geo.toNonIndexed();
-      geo.applyMatrix4(new THREE.Matrix4().makeTranslation(part.x, part.y, part.z));
+      const matrix = new THREE.Matrix4().compose(
+        new THREE.Vector3(part.x, part.y, part.z),
+        new THREE.Quaternion().setFromEuler(
+          new THREE.Euler(part.rotationX ?? 0, part.rotationY ?? 0, part.rotationZ ?? 0),
+        ),
+        new THREE.Vector3(1, 1, 1),
+      );
+      geo.applyMatrix4(matrix);
       return geo;
     });
     if (matching.length === 1) {
@@ -216,9 +243,7 @@ function buildStaticGeometry(
   const profile = STYLE_PROFILES[style];
   const wheelR = 0.32;
   const bodyH = H * 0.26;
-  const cabinH = H * profile.cabin.heightRatio;
   const bodyBevel = 0.045;
-  const glassBevel = 0.035;
   const bodyGeo = extrudeShape(
     taperedRoundedRect(
       W,
@@ -230,49 +255,126 @@ function buildStaticGeometry(
     bodyH,
     bodyBevel,
   );
-  const cabinGeo = extrudeShape(
-    taperedRoundedRect(
-      W * profile.cabin.widthRatio,
-      L * profile.cabin.lengthRatio,
-      0.94,
-      1,
-      0.5,
-    ),
-    cabinH,
-    glassBevel,
-  );
-
   const bodyY = wheelR - 0.04 + bodyH / 2 + bodyBevel;
   const bodyTop = bodyY + bodyH / 2 + bodyBevel;
   const cabinZ = L * profile.cabin.zOffset;
-  const cabinY = bodyTop + cabinH / 2 + glassBevel - 0.01;
-  const cabinTop = cabinY + cabinH / 2 + glassBevel;
-  const roofY = cabinTop + 0.035;
+  const cabinLen = L * profile.cabin.lengthRatio;
+  const cabinW = W * profile.cabin.widthRatio;
+  const cabinFront = cabinZ + cabinLen / 2;
+  const cabinRear = cabinZ - cabinLen / 2;
+  const windshieldHeight = 0.72;
+  const windshieldY = bodyTop + windshieldHeight / 2 + 0.02;
+  const roofY = bodyTop + windshieldHeight + 0.035;
   const roofGeo = new THREE.BoxGeometry(
     W * profile.roofWidthRatio,
     0.07,
     L * profile.roofLengthRatio,
   );
 
+  const rotatedBox = (
+    w: number,
+    h: number,
+    d: number,
+    x: number,
+    y: number,
+    z: number,
+    rotationX: number,
+    key: MaterialKey,
+  ): StaticPart => ({ geo: new THREE.BoxGeometry(w, h, d), x, y, z, rotationX, key });
+
   const parts: StaticPart[] = [
     { geo: bodyGeo, x: 0, y: bodyY, z: 0, key: 'body' },
-    { geo: cabinGeo, x: 0, y: cabinY, z: cabinZ, key: 'glass' },
+    rotatedBox(cabinW, windshieldHeight + 0.28, 0.3, 0, bodyTop + 0.13, cabinZ, 0, 'glass'),
+    rotatedBox(cabinW, windshieldHeight, 0.08, 0, windshieldY, cabinFront - 0.04, -1.12, 'glass'),
+    rotatedBox(cabinW, windshieldHeight, 0.08, 0, windshieldY, cabinRear + 0.04, 1.24, 'glass'),
+    rotatedBox(cabinW * 0.94, windshieldHeight - 0.1, 0.05, -cabinW / 2 - 0.005, windshieldY - 0.03, cabinZ, 0, 'glass'),
+    rotatedBox(cabinW * 0.94, windshieldHeight - 0.1, 0.05, cabinW / 2 + 0.005, windshieldY - 0.03, cabinZ, 0, 'glass'),
     { geo: roofGeo, x: 0, y: roofY, z: cabinZ, key: 'body' },
+    {
+      geo: new THREE.BoxGeometry(0.12, 0.12, 0.24),
+      x: -W / 2 - 0.05,
+      y: windshieldY - 0.12,
+      z: cabinFront + 0.1,
+      key: 'body',
+    },
+    {
+      geo: new THREE.BoxGeometry(0.12, 0.12, 0.24),
+      x: W / 2 + 0.05,
+      y: windshieldY - 0.12,
+      z: cabinFront + 0.1,
+      key: 'body',
+    },
+    {
+      geo: new THREE.BoxGeometry(0.06, 0.02, 0.5),
+      x: -W / 2 + 0.14,
+      y: wheelR + 0.62,
+      z: 0,
+      key: 'dark',
+    },
+    {
+      geo: new THREE.BoxGeometry(0.06, 0.02, 0.5),
+      x: W / 2 - 0.14,
+      y: wheelR + 0.62,
+      z: 0,
+      key: 'dark',
+    },
+    {
+      geo: new THREE.BoxGeometry(0.9, 0.22, 0.18),
+      x: 0,
+      y: wheelR + 0.32,
+      z: L / 2 + 0.03,
+      key: 'dark',
+    },
+    {
+      geo: new THREE.BoxGeometry(0.4, 0.08, 0.05),
+      x: 0,
+      y: wheelR + 0.33,
+      z: L / 2 + 0.1,
+      key: 'dark',
+    },
   ];
 
   parts.push(
     {
-      geo: new THREE.BoxGeometry(W * 0.98, 0.18, 0.16),
+      geo: new THREE.BoxGeometry(W * 1.04, 0.28, 0.34),
       x: 0,
       y: wheelR + 0.13,
-      z: L / 2 + 0.06,
+      z: L / 2 + 0.08,
       key: 'dark',
     },
     {
-      geo: new THREE.BoxGeometry(W * 0.98, 0.18, 0.16),
+      geo: new THREE.BoxGeometry(W * 1.04, 0.28, 0.34),
       x: 0,
       y: wheelR + 0.13,
-      z: -L / 2 - 0.06,
+      z: -L / 2 - 0.08,
+      key: 'dark',
+    },
+    {
+      geo: new THREE.BoxGeometry(W * 0.92, 0.12, 0.1),
+      x: 0,
+      y: wheelR + 0.1,
+      z: L / 2 - 0.28,
+      key: 'dark',
+    },
+    {
+      geo: new THREE.BoxGeometry(W * 0.92, 0.12, 0.1),
+      x: 0,
+      y: wheelR + 0.1,
+      z: -L / 2 + 0.28,
+      key: 'dark',
+    },
+    {
+      geo: new THREE.BoxGeometry(W * 1.0, 0.5, 0.14),
+      x: 0,
+      y: wheelR + 0.16,
+      z: L / 2 + 0.16,
+      key: 'dark',
+    },
+    {
+      geo: new THREE.BoxGeometry(W * 1.0, 0.5, 0.14),
+      x: 0,
+      y: wheelR + 0.16,
+      z: -L / 2 - 0.16,
       key: 'dark',
     },
     {
@@ -458,20 +560,65 @@ function staticGeometries(
   return built;
 }
 
-export function buildVehicle(spec: VehicleSpec, color: string): VehicleVisuals {
+export function buildVehicle(
+  spec: VehicleSpec,
+  color: string,
+  castShadows = true,
+  highQuality = true,
+): VehicleVisuals {
   const group = new THREE.Group();
   const L = spec.length;
   const W = spec.width;
   const H = spec.height;
 
-  const bodyMat = material(
-    `body:${color}`,
-    () => new THREE.MeshStandardMaterial({ color, roughness: 0.3, metalness: 0.55 }),
-  );
-  const glassMat = material(
-    'glass',
-    () => new THREE.MeshStandardMaterial({ color: 0x0d1820, roughness: 0.08, metalness: 0.55 }),
-  );
+  const bodyMat = highQuality
+    ? material(
+        `body:${color}`,
+        () =>
+          new THREE.MeshPhysicalMaterial({
+            color,
+            roughness: 0.28,
+            metalness: 0.6,
+            clearcoat: 1,
+            clearcoatRoughness: 0.18,
+            envMapIntensity: 1.25,
+            envMap: vehicleEnvMap ?? undefined,
+          }),
+      )
+    : material(
+        `body-npc:${color}`,
+        () =>
+          new THREE.MeshStandardMaterial({
+            color,
+            roughness: 0.34,
+            metalness: 0.6,
+            envMapIntensity: 1.0,
+            envMap: vehicleEnvMap ?? undefined,
+          }),
+      );
+  const glassMat = highQuality
+    ? material(
+        'glass',
+        () =>
+          new THREE.MeshPhysicalMaterial({
+            color: 0x0b1f2a,
+            roughness: 0.05,
+            metalness: 0.9,
+            envMapIntensity: 1.5,
+            envMap: vehicleEnvMap ?? undefined,
+          }),
+      )
+    : material(
+        'glass-npc',
+        () =>
+          new THREE.MeshStandardMaterial({
+            color: 0x0b1f2a,
+            roughness: 0.08,
+            metalness: 0.85,
+            envMapIntensity: 1.2,
+            envMap: vehicleEnvMap ?? undefined,
+          }),
+      );
   const darkMat = material(
     'dark',
     () => new THREE.MeshStandardMaterial({ color: 0x181a1f, roughness: 0.85, metalness: 0.1 }),
@@ -483,6 +630,10 @@ export function buildVehicle(spec: VehicleSpec, color: string): VehicleVisuals {
   const rimMat = material(
     'rim',
     () => new THREE.MeshStandardMaterial({ color: 0xc9ced4, roughness: 0.25, metalness: 0.85 }),
+  );
+  const spokeMat = material(
+    'spoke',
+    () => new THREE.MeshStandardMaterial({ color: 0x9aa1a8, roughness: 0.3, metalness: 0.9 }),
   );
   const headlightMat = material(
     'headlight',
@@ -538,36 +689,47 @@ export function buildVehicle(spec: VehicleSpec, color: string): VehicleVisuals {
   const attachStatic = (
     geo: THREE.BufferGeometry | null,
     mat: THREE.Material,
-    castShadow = true,
   ): void => {
     if (!geo) return;
     const mesh = new THREE.Mesh(geo, mat);
-    mesh.castShadow = castShadow;
+    mesh.castShadow = castShadows;
     mesh.receiveShadow = true;
     group.add(mesh);
   };
   attachStatic(statics.body, bodyMat);
   attachStatic(statics.glass, glassMat);
   attachStatic(statics.dark, darkMat);
-  attachStatic(statics.headlight, headlightMat, false);
-  attachStatic(statics.taillight, taillightMat, false);
-  attachStatic(statics.roof, roofMat, false);
-  attachStatic(statics.lightbarRed, lightbarRedMat, false);
-  attachStatic(statics.lightbarBlue, lightbarBlueMat, false);
+  attachStatic(statics.headlight, headlightMat);
+  attachStatic(statics.taillight, taillightMat);
+  attachStatic(statics.roof, roofMat);
+  attachStatic(statics.lightbarRed, lightbarRedMat);
+  attachStatic(statics.lightbarBlue, lightbarBlueMat);
   attachStatic(statics.stripe, stripeMat);
 
   const wheelR = 0.32;
-  const wheelGeo = geometry(
+  const tireGeo = geometry(
     'wheel-tire',
-    () => new THREE.CylinderGeometry(wheelR, wheelR, 0.24, 16),
+    () => new THREE.CylinderGeometry(wheelR, wheelR, 0.24, 20),
   );
   const rimGeo = geometry(
     'wheel-rim',
-    () => new THREE.CylinderGeometry(0.2, 0.2, 0.26, 12),
+    () => new THREE.CylinderGeometry(0.19, 0.13, 0.24, 14),
+  );
+  const spokeGeo = geometry(
+    'wheel-spoke',
+    () => new THREE.BoxGeometry(0.07, 0.03, 0.16),
   );
   const hubGeo = geometry(
     'wheel-hub',
-    () => new THREE.CylinderGeometry(0.06, 0.06, 0.28, 8),
+    () => new THREE.CylinderGeometry(0.055, 0.075, 0.28, 8),
+  );
+  const brakeGeo = geometry(
+    'wheel-brake',
+    () => new THREE.CylinderGeometry(0.14, 0.14, 0.05, 14),
+  );
+  const brakeMat = material(
+    'brake',
+    () => new THREE.MeshStandardMaterial({ color: 0x2c3035, roughness: 0.7, metalness: 0.5 }),
   );
 
   const frontLeftPivot = new THREE.Group();
@@ -581,12 +743,24 @@ export function buildVehicle(spec: VehicleSpec, color: string): VehicleVisuals {
   const wheels: THREE.Group[] = [];
   const createWheel = (pivot: THREE.Group | null, x: number, z: number): THREE.Group => {
     const wheel = new THREE.Group();
-    const tire = new THREE.Mesh(wheelGeo, tireMat);
-    tire.castShadow = true;
+    const tire = new THREE.Mesh(tireGeo, tireMat);
+    tire.castShadow = castShadows;
     const rim = new THREE.Mesh(rimGeo, rimMat);
-    rim.castShadow = true;
+    rim.castShadow = castShadows;
     const hub = new THREE.Mesh(hubGeo, darkMat);
-    wheel.add(tire, rim, hub);
+    const brake = new THREE.Mesh(brakeGeo, brakeMat);
+    brake.position.x = -0.1;
+    for (let i = 0; i < 5; i += 1) {
+      const spoke = new THREE.Mesh(spokeGeo, spokeMat);
+      const angle = (i / 5) * Math.PI * 2;
+      spoke.rotation.z = angle;
+      spoke.position.x = 0.02;
+      spoke.castShadow = castShadows;
+      wheel.add(spoke);
+    }
+    rim.position.x = 0.045;
+    hub.position.x = 0.075;
+    wheel.add(tire, rim, hub, brake);
     if (pivot) {
       pivot.add(wheel);
     } else {

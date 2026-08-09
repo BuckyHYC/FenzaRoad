@@ -39,25 +39,25 @@ export const DENSITY_CONFIG: Record<
   }
 > = {
   low: {
-    trafficMax: 52,
-    trafficSpawnInterval: 0.8,
-    pedestrianMax: 36,
-    pedestrianNearby: 14,
-    pedestrianSpawnInterval: 0.38,
+    trafficMax: 60,
+    trafficSpawnInterval: 0.66,
+    pedestrianMax: 44,
+    pedestrianNearby: 18,
+    pedestrianSpawnInterval: 0.32,
   },
   medium: {
-    trafficMax: 72,
-    trafficSpawnInterval: 0.52,
-    pedestrianMax: 54,
-    pedestrianNearby: 22,
-    pedestrianSpawnInterval: 0.28,
+    trafficMax: 84,
+    trafficSpawnInterval: 0.44,
+    pedestrianMax: 66,
+    pedestrianNearby: 26,
+    pedestrianSpawnInterval: 0.24,
   },
   high: {
-    trafficMax: 96,
-    trafficSpawnInterval: 0.34,
-    pedestrianMax: 76,
-    pedestrianNearby: 30,
-    pedestrianSpawnInterval: 0.2,
+    trafficMax: 110,
+    trafficSpawnInterval: 0.28,
+    pedestrianMax: 92,
+    pedestrianNearby: 34,
+    pedestrianSpawnInterval: 0.16,
   },
 };
 
@@ -90,10 +90,10 @@ export const PEDESTRIAN_CONFIG = {
   MAX_COUNT: 76,
   NEARBY_TARGET: 30,
   SPAWN_INTERVAL: 0.2,
-  SPAWN_MIN_PLAYER_DISTANCE: 70,
-  SPAWN_MAX_PLAYER_DISTANCE: 380,
-  DESPAWN_DISTANCE: 520,
-  NEARBY_RADIUS: 240,
+  SPAWN_MIN_PLAYER_DISTANCE: 80,
+  SPAWN_MAX_PLAYER_DISTANCE: 460,
+  DESPAWN_DISTANCE: 600,
+  NEARBY_RADIUS: 320,
   WALK_SPEED_MIN: 0.9,
   WALK_SPEED_MAX: 1.55,
   DOWN_DURATION: 4,
@@ -109,6 +109,11 @@ export const RACE_CONFIG = {
   COUNTDOWN_SECONDS: 3,
   CHECKPOINT_RADIUS: 22,
   CORRIDOR_WIDTH: 26,
+  BARRIER_WIDTH: 1.1,
+  BARRIER_HEIGHT: 0.95,
+  BARRIER_OFFSET: 16.5,
+  BARRIER_EXTRA: 2.5,
+  FLAG_OFFSET: 13.5,
   AI_RUBBERBAND_BEHIND: 1.1,
   AI_RUBBERBAND_AHEAD: 0.92,
   DIFFICULTIES: {
@@ -116,6 +121,14 @@ export const RACE_CONFIG = {
     normal: { speedScale: 0.92, cornerScale: 0.84, rubberband: 1.08 },
     hard: { speedScale: 1.0, cornerScale: 1.0, rubberband: 1.1 },
   } as Record<string, { speedScale: number; cornerScale: number; rubberband: number }>,
+} as const;
+
+export const TREE_COLLIDER_RADIUS = 0.85;
+
+export const DENSITY_VALUES = {
+  low: { trafficMax: 60, trafficSpawnInterval: 0.66, pedestrianMax: 44, pedestrianNearby: 18, pedestrianSpawnInterval: 0.32 },
+  medium: { trafficMax: 84, trafficSpawnInterval: 0.44, pedestrianMax: 66, pedestrianNearby: 26, pedestrianSpawnInterval: 0.24 },
+  high: { trafficMax: 110, trafficSpawnInterval: 0.28, pedestrianMax: 92, pedestrianNearby: 34, pedestrianSpawnInterval: 0.16 },
 } as const;
 
 export const AUDIO_CONFIG = {
