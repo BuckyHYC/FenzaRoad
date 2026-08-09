@@ -1,4 +1,4 @@
-import type { VehicleSpec } from './types';
+import type { Density, VehicleSpec } from './types';
 
 export const WORLD = {
   GRID_SIZE: 6,
@@ -23,8 +23,43 @@ export const PHYSICS = {
   COAST_DECELERATION: 2.2,
   REVERSE_MAX_SPEED: 9,
   COLLISION_BOUNCE: 0.38,
+  COLLISION_RESTITUTION: 0.34,
+  VEHICLE_MASS_DENSITY: 125,
   CAR_RADIUS_PADDING: 0.12,
 } as const;
+
+export const DENSITY_CONFIG: Record<
+  Density,
+  {
+    trafficMax: number;
+    trafficSpawnInterval: number;
+    pedestrianMax: number;
+    pedestrianNearby: number;
+    pedestrianSpawnInterval: number;
+  }
+> = {
+  low: {
+    trafficMax: 52,
+    trafficSpawnInterval: 0.8,
+    pedestrianMax: 36,
+    pedestrianNearby: 14,
+    pedestrianSpawnInterval: 0.38,
+  },
+  medium: {
+    trafficMax: 72,
+    trafficSpawnInterval: 0.52,
+    pedestrianMax: 54,
+    pedestrianNearby: 22,
+    pedestrianSpawnInterval: 0.28,
+  },
+  high: {
+    trafficMax: 96,
+    trafficSpawnInterval: 0.34,
+    pedestrianMax: 76,
+    pedestrianNearby: 30,
+    pedestrianSpawnInterval: 0.2,
+  },
+};
 
 export const CAMERA_CONFIG = {
   FOV: 62,
@@ -47,23 +82,25 @@ export const TRAFFIC_CONFIG = {
   SPEED_VARIATION: 3.5,
   STOP_MARGIN: 15,
   FOLLOW_GAP: 9,
-  SPAWN_MIN_PLAYER_DISTANCE: 220,
-  DESPAWN_DISTANCE: 520,
+  SPAWN_MIN_PLAYER_DISTANCE: 240,
+  DESPAWN_DISTANCE: 680,
 } as const;
 
 export const PEDESTRIAN_CONFIG = {
-  MAX_COUNT: 28,
-  NEARBY_TARGET: 10,
-  SPAWN_INTERVAL: 0.45,
-  SPAWN_MIN_PLAYER_DISTANCE: 55,
-  SPAWN_MAX_PLAYER_DISTANCE: 240,
-  DESPAWN_DISTANCE: 320,
+  MAX_COUNT: 76,
+  NEARBY_TARGET: 30,
+  SPAWN_INTERVAL: 0.2,
+  SPAWN_MIN_PLAYER_DISTANCE: 70,
+  SPAWN_MAX_PLAYER_DISTANCE: 380,
+  DESPAWN_DISTANCE: 520,
+  NEARBY_RADIUS: 240,
   WALK_SPEED_MIN: 0.9,
   WALK_SPEED_MAX: 1.55,
   DOWN_DURATION: 4,
   FALL_DURATION: 0.35,
   SIDEWALK_OFFSET: 9.5,
-  RADIUS: 0.38,
+  RADIUS: 0.46,
+  MODEL_SCALE: 1.28,
 } as const;
 
 export const RACE_CONFIG = {

@@ -1,4 +1,4 @@
-import { defineConfig, devices } from '@playwright/test';
+import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -18,11 +18,7 @@ export default defineConfig({
   projects: [
     {
       name: 'desktop',
-      use: { ...devices['Desktop Chrome'], channel: 'chrome' },
-    },
-    {
-      name: 'mobile',
-      use: { ...devices['Pixel 5'], channel: 'chrome' },
+      use: { viewport: { width: 1280, height: 800 }, channel: 'chrome' },
     },
   ],
   webServer: {

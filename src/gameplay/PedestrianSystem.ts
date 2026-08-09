@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { PEDESTRIAN_CONFIG } from '../core/Constants';
+import { DENSITY_CONFIG, PEDESTRIAN_CONFIG } from '../core/Constants';
+import { gameState } from '../core/GameState';
 import type { City } from '../level/CityBuilder';
 
 export interface PedestrianCollider {
@@ -59,6 +60,8 @@ function buildPedestrian(): THREE.Group {
   const shirtColor = SHIRT_COLORS[Math.floor(Math.random() * SHIRT_COLORS.length)];
   const pantsColor = PANTS_COLORS[Math.floor(Math.random() * PANTS_COLORS.length)];
   const group = new THREE.Group();
+  const model = new THREE.Group();
+  model.scale.setScalar(PEDESTRIAN_CONFIG.MODEL_SCALE);
 
   const bodyGeo = geometry(
     'ped-body',
@@ -89,6 +92,24 @@ function buildPedestrian(): THREE.Group {
   rightLeg.position.set(0.11, 0.275, 0);
   rightLeg.castShadow = true;
 
+  const upperArmGeo = geometry(
+    'ped-arm',
+    () => new THREE.BoxGeometry(0.11, 0.46, 0.13),
+  );
+  const armMat = material(
+    `ped-shirt:${shirtColor}`,
+    () => new THREE.MeshStandardMaterial({ color: shirtColor, roughness: 0.85 }),
+  );
+  const shoulderPivot = new THREE.Group();
+  shoulderPivot.position.y = 1.18;
+  const leftArm = new THREE.Mesh(upperArmGeo, armMat);
+  leftArm.position.set(-0.26, -0.22, 0);
+  leftArm.castShadow = true;
+  const rightArm = new THREE.Mesh(upperArmGeo, armMat);
+  rightArm.position.set(0.26, -0.22, 0);
+  rightArm.castShadow = true;
+  shoulderPivot.add(leftArm, rightArm);
+
   const headGeo = geometry(
     'ped-head',
     () => new THREE.SphereGeometry(0.16, 10, 8),
@@ -100,10 +121,18 @@ function buildPedestrian(): THREE.Group {
       () => new THREE.MeshStandardMaterial({ color: 0xd9a878, roughness: 0.8 }),
     ),
   );
-  head.position.y = 1.48;
+  head.position.y = 0.28;
   head.castShadow = true;
+  const headGroup = new THREE.Group();
+  headGroup.position.y = 1.2;
+  headGroup.add(head);
 
-  group.add(body, leftLeg, rightLeg, head);
+  model.add(body, leftLeg, rightLeg, shoulderPivot, headGroup);
+  group.add(model);
+  group.userData.leftLeg = leftLeg;
+  group.userData.rightLeg = rightLeg;
+  group.userData.shoulderPivot = shoulderPivot;
+  group.userData.headGroup = headGroup;
   return group;
 }
 
@@ -139,9 +168,10 @@ export class PedestrianSystem {
     onHit: (intensity: number, isPlayer: boolean) => void,
   ): void {
     if (!this.active) return;
+    const density = DENSITY_CONFIG[gameState.settings.density];
     this.spawnTimer -= dt;
     if (this.spawnTimer <= 0) {
-      this.spawnTimer = PEDESTRIAN_CONFIG.SPAWN_INTERVAL;
+      this.spawnTimer = density.pedestrianSpawnInterval;
       this.trySpawn(playerX, playerZ);
     }
 
@@ -236,22 +266,41 @@ export class PedestrianSystem {
       group.position.set(ped.x, 0.08 - 0.04 * ease, ped.z);
       group.rotation.set(-Math.PI * 0.5 * ease, ped.heading + Math.PI, 0);
       group.scale.setScalar(Math.max(0.001, 1 - ease * 0.12));
+      group.userData.leftLeg.rotation.x = 0;
+      group.userData.rightLeg.rotation.x = 0;
+      group.userData.shoulderPivot.rotation.x = 0;
+      group.userData.headGroup.rotation.z = 0;
     } else {
+      const swing = ped.moving ? Math.sin(ped.phase) : 0;
+      group.userData.leftLeg.rotation.x = swing * 0.55;
+      group.userData.rightLeg.rotation.x = -swing * 0.55;
+      group.userData.shoulderPivot.rotation.x = -swing * 0.28;
+      group.userData.headGroup.rotation.z = Math.sin(ped.phase * 0.5) * 0.06;
       group.position.set(ped.x, 0, ped.z);
-      group.rotation.set(0, ped.heading, Math.sin(ped.phase) * 0.04);
+      group.rotation.set(
+        ped.moving ? Math.abs(Math.cos(ped.phase)) * 0.018 : 0,
+        ped.heading,
+        ped.moving ? Math.sin(ped.phase) * 0.03 : 0,
+      );
       group.scale.setScalar(1);
     }
   }
 
   private trySpawn(playerX: number, playerZ: number): void {
-    if (this.pedestrians.length >= PEDESTRIAN_CONFIG.MAX_COUNT) return;
+    const density = DENSITY_CONFIG[gameState.settings.density];
+    if (this.pedestrians.length >= density.pedestrianMax) return;
     let nearby = 0;
     for (const ped of this.pedestrians) {
       const dx = ped.x - playerX;
       const dz = ped.z - playerZ;
-      if (dx * dx + dz * dz < 180 * 180) nearby += 1;
+      if (
+        dx * dx + dz * dz <
+        PEDESTRIAN_CONFIG.NEARBY_RADIUS ** 2
+      ) {
+        nearby += 1;
+      }
     }
-    if (nearby >= PEDESTRIAN_CONFIG.NEARBY_TARGET) return;
+    if (nearby >= density.pedestrianNearby) return;
 
     for (let attempt = 0; attempt < 14; attempt += 1) {
       const edge = this.city.edges[Math.floor(Math.random() * this.city.edges.length)];
