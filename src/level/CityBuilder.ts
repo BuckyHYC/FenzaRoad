@@ -1,0 +1,439 @@
+import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { COLORS, RACE_CONFIG, WORLD } from '../core/Constants';
+import type { Aabb, LaneInfo } from '../core/types';
+
+export interface CityIntersection {
+  index: number;
+  x: number;
+  z: number;
+}
+
+export interface CityEdge {
+  id: number;
+  from: number;
+  to: number;
+  axis: 'x' | 'z';
+  length: number;
+}
+
+export interface City {
+  group: THREE.Group;
+  intersections: CityIntersection[];
+  edges: CityEdge[];
+  lanes: LaneInfo[];
+  buildingColliders: Aabb[];
+  raceCheckpoints: THREE.Vector3[];
+  raceStartSlots: THREE.Vector3[];
+  raceStartHeading: number;
+  bounds: Aabb;
+  lightGreen(axis: 'x' | 'z', timeSec: number, nodeIndex: number): boolean;
+  updateSignals(timeSec: number): void;
+}
+
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function transformedBox(
+  width: number,
+  height: number,
+  depth: number,
+  x: number,
+  y: number,
+  z: number,
+): THREE.BufferGeometry {
+  const geometry = new THREE.BoxGeometry(width, height, depth);
+  geometry.applyMatrix4(new THREE.Matrix4().makeTranslation(x, y, z));
+  return geometry;
+}
+
+function makeInstanced(
+  geometry: THREE.BufferGeometry,
+  material: THREE.Material,
+  count: number,
+): THREE.InstancedMesh {
+  const mesh = new THREE.InstancedMesh(geometry, material, count);
+  mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+  return mesh;
+}
+
+export function buildCity(scene: THREE.Scene): City {
+  const group = new THREE.Group();
+  const N = WORLD.GRID_SIZE;
+  const B = WORLD.BLOCK_LENGTH;
+  const rand = mulberry32(WORLD.CITY_SEED);
+
+  const intersections: CityIntersection[] = [];
+  for (let j = 0; j <= N; j += 1) {
+    for (let i = 0; i <= N; i += 1) {
+      intersections.push({ index: j * (N + 1) + i, x: i * B, z: j * B });
+    }
+  }
+
+  const edges: CityEdge[] = [];
+  let edgeId = 0;
+  for (let j = 0; j <= N; j += 1) {
+    for (let i = 0; i < N; i += 1) {
+      edges.push({
+        id: edgeId++,
+        from: j * (N + 1) + i,
+        to: j * (N + 1) + i + 1,
+        axis: 'x',
+        length: B,
+      });
+    }
+  }
+  for (let j = 0; j < N; j += 1) {
+    for (let i = 0; i <= N; i += 1) {
+      edges.push({
+        id: edgeId++,
+        from: j * (N + 1) + i,
+        to: (j + 1) * (N + 1) + i,
+        axis: 'z',
+        length: B,
+      });
+    }
+  }
+
+  const laneOffsets = [2.75, 5.75];
+  const lanes: LaneInfo[] = [];
+  for (const edge of edges) {
+    for (let laneIndex = 0; laneIndex < 2; laneIndex += 1) {
+      lanes.push({
+        edgeId: edge.id,
+        fromNode: edge.from,
+        toNode: edge.to,
+        laneIndex,
+        lateralOffset: laneOffsets[laneIndex],
+      });
+    }
+    for (let laneIndex = 0; laneIndex < 2; laneIndex += 1) {
+      lanes.push({
+        edgeId: edge.id,
+        fromNode: edge.to,
+        toNode: edge.from,
+        laneIndex: 2 + laneIndex,
+        lateralOffset: -laneOffsets[laneIndex],
+      });
+    }
+  }
+
+  const roadParts: THREE.BufferGeometry[] = [];
+  const sidewalkParts: THREE.BufferGeometry[] = [];
+  const markingParts: THREE.BufferGeometry[] = [];
+  for (const edge of edges) {
+    const a = intersections[edge.from];
+    const b = intersections[edge.to];
+    const midX = (a.x + b.x) / 2;
+    const midZ = (a.z + b.z) / 2;
+    if (edge.axis === 'x') {
+      roadParts.push(transformedBox(B, 0.14, WORLD.ROAD_WIDTH, midX, 0.06, midZ));
+      sidewalkParts.push(
+        transformedBox(
+          B + WORLD.SIDEWALK_WIDTH * 2,
+          0.12,
+          WORLD.ROAD_WIDTH + WORLD.SIDEWALK_WIDTH * 2,
+          midX,
+          0.03,
+          midZ,
+        ),
+      );
+    } else {
+      roadParts.push(transformedBox(WORLD.ROAD_WIDTH, 0.14, B, midX, 0.06, midZ));
+      sidewalkParts.push(
+        transformedBox(
+          WORLD.ROAD_WIDTH + WORLD.SIDEWALK_WIDTH * 2,
+          0.12,
+          B + WORLD.SIDEWALK_WIDTH * 2,
+          midX,
+          0.03,
+          midZ,
+        ),
+      );
+    }
+    const dashCount = Math.floor(B / 14);
+    for (let d = 1; d < dashCount; d += 1) {
+      const t = (d / dashCount) * B;
+      const px = a.x + (b.x - a.x) * (t / B);
+      const pz = a.z + (b.z - a.z) * (t / B);
+      if (edge.axis === 'x') {
+        markingParts.push(transformedBox(5, 0.05, 0.16, px, 0.15, pz));
+      } else {
+        markingParts.push(transformedBox(0.16, 0.05, 5, px, 0.15, pz));
+      }
+    }
+  }
+
+  const roadGeometry = mergeGeometries(roadParts);
+  const sidewalkGeometry = mergeGeometries(sidewalkParts);
+  const markingGeometry = mergeGeometries(markingParts);
+  if (roadGeometry) {
+    const road = new THREE.Mesh(
+      roadGeometry,
+      new THREE.MeshStandardMaterial({ color: COLORS.ROAD, roughness: 0.9 }),
+    );
+    road.receiveShadow = true;
+    group.add(road);
+  }
+  if (sidewalkGeometry) {
+    const sidewalk = new THREE.Mesh(
+      sidewalkGeometry,
+      new THREE.MeshStandardMaterial({ color: COLORS.SIDEWALK, roughness: 0.85 }),
+    );
+    sidewalk.receiveShadow = true;
+    group.add(sidewalk);
+  }
+  if (markingGeometry) {
+    const marking = new THREE.Mesh(
+      markingGeometry,
+      new THREE.MeshBasicMaterial({ color: COLORS.MARKING }),
+    );
+    group.add(marking);
+  }
+
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(2600, 2600),
+    new THREE.MeshStandardMaterial({ color: COLORS.GROUND, roughness: 1 }),
+  );
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.y = -0.02;
+  ground.receiveShadow = true;
+  group.add(ground);
+
+  const buildingMatrices: THREE.Matrix4[] = [];
+  const buildingColors: THREE.Color[] = [];
+  const buildingColliders: Aabb[] = [];
+  const inset = WORLD.BUILDING_INSET;
+  for (let j = 0; j < N; j += 1) {
+    for (let i = 0; i < N; i += 1) {
+      const x0 = i * B + inset;
+      const x1 = (i + 1) * B - inset;
+      const z0 = j * B + inset;
+      const z1 = (j + 1) * B - inset;
+      const areaW = x1 - x0;
+      const areaD = z1 - z0;
+      if (areaW < 24 || areaD < 24) continue;
+      const gap = 9;
+      const plotW = (areaW - gap) / 2;
+      const plotD = (areaD - gap) / 2;
+      for (let py = 0; py < 2; py += 1) {
+        for (let px = 0; px < 2; px += 1) {
+          if (rand() < 0.28) continue;
+          const bw = 18 + rand() * Math.min(plotW - 8, 26);
+          const bd = 18 + rand() * Math.min(plotD - 8, 26);
+          const bx = x0 + px * (plotW + gap) + (plotW - bw) * 0.5 + (rand() - 0.5) * 3;
+          const bz = z0 + py * (plotD + gap) + (plotD - bd) * 0.5 + (rand() - 0.5) * 3;
+          const bh = 9 + rand() * 38;
+          const matrix = new THREE.Matrix4().compose(
+            new THREE.Vector3(bx + bw / 2, bh / 2, bz + bd / 2),
+            new THREE.Quaternion(),
+            new THREE.Vector3(bw, bh, bd),
+          );
+          buildingMatrices.push(matrix);
+          buildingColors.push(
+            new THREE.Color(
+              COLORS.BUILDINGS[Math.floor(rand() * COLORS.BUILDINGS.length)],
+            ),
+          );
+          buildingColliders.push({ minX: bx, maxX: bx + bw, minZ: bz, maxZ: bz + bd });
+        }
+      }
+    }
+  }
+
+  if (buildingMatrices.length > 0) {
+    const buildingMesh = makeInstanced(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.78 }),
+      buildingMatrices.length,
+    );
+    buildingMesh.receiveShadow = true;
+    for (let i = 0; i < buildingMatrices.length; i += 1) {
+      buildingMesh.setMatrixAt(i, buildingMatrices[i]);
+      buildingMesh.setColorAt(i, buildingColors[i]);
+    }
+    buildingMesh.instanceMatrix.needsUpdate = true;
+    if (buildingMesh.instanceColor) buildingMesh.instanceColor.needsUpdate = true;
+    group.add(buildingMesh);
+  }
+
+  const treeTrunkData: { x: number; z: number; scale: number }[] = [];
+  const treeStep = 22;
+  for (const edge of edges) {
+    const a = intersections[edge.from];
+    const b = intersections[edge.to];
+    const ux = (b.x - a.x) / B;
+    const uz = (b.z - a.z) / B;
+    const rx = -uz;
+    const rz = ux;
+    for (let t = 10; t < B - 4; t += treeStep) {
+      const side = (Math.floor(t / treeStep) + edge.id) % 2 === 0 ? 1 : -1;
+      const offset = WORLD.ROAD_WIDTH / 2 + WORLD.SIDEWALK_WIDTH * 0.65;
+      const px = a.x + ux * t + rx * side * offset + (rand() - 0.5) * 2.4;
+      const pz = a.z + uz * t + rz * side * offset + (rand() - 0.5) * 2.4;
+      treeTrunkData.push({ x: px, z: pz, scale: 0.8 + rand() * 0.7 });
+    }
+  }
+  if (treeTrunkData.length > 0) {
+    const trunkMesh = makeInstanced(
+      new THREE.CylinderGeometry(0.22, 0.3, 2.2, 6),
+      new THREE.MeshStandardMaterial({ color: 0x6a4a2f, roughness: 1 }),
+      treeTrunkData.length,
+    );
+    const foliageMesh = makeInstanced(
+      new THREE.ConeGeometry(1.35, 2.6, 7),
+      new THREE.MeshStandardMaterial({ color: 0x3f7d3a, roughness: 0.95 }),
+      treeTrunkData.length,
+    );
+    for (let i = 0; i < treeTrunkData.length; i += 1) {
+      const data = treeTrunkData[i];
+      const trunkMatrix = new THREE.Matrix4().compose(
+        new THREE.Vector3(data.x, 1.1 * data.scale, data.z),
+        new THREE.Quaternion(),
+        new THREE.Vector3(1, data.scale, 1),
+      );
+      trunkMesh.setMatrixAt(i, trunkMatrix);
+      const foliageMatrix = new THREE.Matrix4().compose(
+        new THREE.Vector3(data.x, 2.9 * data.scale, data.z),
+        new THREE.Quaternion(),
+        new THREE.Vector3(data.scale * 1.5, data.scale, data.scale * 1.5),
+      );
+      foliageMesh.setMatrixAt(i, foliageMatrix);
+    }
+    trunkMesh.instanceMatrix.needsUpdate = true;
+    foliageMesh.instanceMatrix.needsUpdate = true;
+    group.add(trunkMesh);
+    group.add(foliageMesh);
+  }
+
+  const lampPositions: { x: number; z: number }[] = [];
+  for (const node of intersections) {
+    lampPositions.push({ x: node.x + 9.5, z: node.z + 9.5 });
+    lampPositions.push({ x: node.x - 9.5, z: node.z - 9.5 });
+  }
+  if (lampPositions.length > 0) {
+    const poleMesh = makeInstanced(
+      new THREE.CylinderGeometry(0.07, 0.1, 4.6, 5),
+      new THREE.MeshStandardMaterial({ color: 0x2c2f33, roughness: 0.7 }),
+      lampPositions.length,
+    );
+    const headMesh = makeInstanced(
+      new THREE.BoxGeometry(0.9, 0.22, 0.3),
+      new THREE.MeshBasicMaterial({ color: 0xffe6a0 }),
+      lampPositions.length,
+    );
+    for (let i = 0; i < lampPositions.length; i += 1) {
+      const lamp = lampPositions[i];
+      const poleMatrix = new THREE.Matrix4().compose(
+        new THREE.Vector3(lamp.x, 2.3, lamp.z),
+        new THREE.Quaternion(),
+        new THREE.Vector3(1, 1, 1),
+      );
+      poleMesh.setMatrixAt(i, poleMatrix);
+      const headMatrix = new THREE.Matrix4().compose(
+        new THREE.Vector3(lamp.x, 4.62, lamp.z),
+        new THREE.Quaternion(),
+        new THREE.Vector3(1, 1, 1),
+      );
+      headMesh.setMatrixAt(i, headMatrix);
+    }
+    poleMesh.instanceMatrix.needsUpdate = true;
+    headMesh.instanceMatrix.needsUpdate = true;
+    group.add(poleMesh);
+    group.add(headMesh);
+  }
+
+  const signalInstances: { x: number; z: number; axis: 'x' | 'z' }[] = [];
+  for (const node of intersections) {
+    signalInstances.push({ x: node.x - 6.5, z: node.z + 6.5, axis: 'x' });
+    signalInstances.push({ x: node.x + 6.5, z: node.z - 6.5, axis: 'z' });
+  }
+  const redSignals = makeInstanced(
+    new THREE.BoxGeometry(0.55, 0.75, 0.55),
+    new THREE.MeshBasicMaterial({ color: 0xd33a2c }),
+    signalInstances.length,
+  );
+  const greenSignals = makeInstanced(
+    new THREE.BoxGeometry(0.55, 0.75, 0.55),
+    new THREE.MeshBasicMaterial({ color: 0x2fbf4f }),
+    signalInstances.length,
+  );
+  const signalMatrix = new THREE.Matrix4();
+  const updateSignals = (timeSec: number): void => {
+    for (let i = 0; i < signalInstances.length; i += 1) {
+      const signal = signalInstances[i];
+      const nodeIndex = intersections.findIndex(
+        (n) => Math.abs(n.x - signal.x) < 7 && Math.abs(n.z - signal.z) < 7,
+      );
+      const green = lightGreenFor(signal.axis, timeSec, nodeIndex);
+      signalMatrix.compose(
+        new THREE.Vector3(signal.x, 4.7, signal.z),
+        new THREE.Quaternion(),
+        new THREE.Vector3(1, green ? 0 : 1, 1),
+      );
+      redSignals.setMatrixAt(i, signalMatrix);
+      signalMatrix.compose(
+        new THREE.Vector3(signal.x, 4.7, signal.z),
+        new THREE.Quaternion(),
+        new THREE.Vector3(1, green ? 1 : 0, 1),
+      );
+      greenSignals.setMatrixAt(i, signalMatrix);
+    }
+    redSignals.instanceMatrix.needsUpdate = true;
+    greenSignals.instanceMatrix.needsUpdate = true;
+  };
+  group.add(redSignals);
+  group.add(greenSignals);
+
+  const startI = Math.floor(N / 2);
+  const checkpoints: THREE.Vector3[] = [];
+  const at = (x: number, z: number): THREE.Vector3 => new THREE.Vector3(x, 0, z);
+  for (let i = startI; i <= N; i += 1) checkpoints.push(at(i * B, N * B));
+  for (let j = N - 1; j >= 0; j -= 1) checkpoints.push(at(N * B, j * B));
+  for (let i = N - 1; i >= 0; i -= 1) checkpoints.push(at(i * B, 0));
+  for (let j = 1; j < N; j += 1) checkpoints.push(at(0, j * B));
+  for (let i = 0; i < startI; i += 1) checkpoints.push(at(i * B, N * B));
+
+  const raceStartSlots: THREE.Vector3[] = [];
+  for (let k = 0; k < RACE_CONFIG.TOTAL_RACERS; k += 1) {
+    const x = startI * B - 30 - k * 11;
+    const z = N * B + (k % 2 === 0 ? -3.5 : 3.5);
+    raceStartSlots.push(at(x, z));
+  }
+
+  const lightGreenFor = (
+    axis: 'x' | 'z',
+    timeSec: number,
+    nodeIndex: number,
+  ): boolean => {
+    const offset = (nodeIndex % 7) * 1.6;
+    const t = (timeSec + offset) % WORLD.LIGHT_CYCLE;
+    if (axis === 'x') return t < WORLD.LIGHT_GREEN;
+    return t >= WORLD.LIGHT_YELLOW_START;
+  };
+
+  const city: City = {
+    group,
+    intersections,
+    edges,
+    lanes,
+    buildingColliders,
+    raceCheckpoints: checkpoints,
+    raceStartSlots,
+    raceStartHeading: Math.PI / 2,
+    bounds: { minX: -40, maxX: N * B + 40, minZ: -40, maxZ: N * B + 40 },
+    lightGreen: lightGreenFor,
+    updateSignals,
+  };
+
+  scene.add(group);
+  return city;
+}

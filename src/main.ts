@@ -1,60 +1,65 @@
 import './style.css';
-import * as THREE from 'three';
-import GameEngine from './core/GameEngine';
-import InputManager from './core/InputManager';
-import SimpleCar from './vehicles/SimpleCar';
-import HUD from './ui/HUD';
-import {
-  CAMERA_FOLLOW_DISTANCE,
-  CAMERA_FOLLOW_HEIGHT,
-  CAMERA_LOOK_AHEAD,
-  CAMERA_LOOK_HEIGHT,
-  CAMERA_SMOOTH_FACTOR,
-} from './config/constants';
+import { Game } from './core/Game';
+import { gameState } from './core/GameState';
+import { eventBus, Events } from './core/EventBus';
 
 const app = document.getElementById('app');
 if (!app) {
   throw new Error('App container not found');
 }
 
-const engine = new GameEngine(app);
-InputManager.getInstance();
+const game = new Game(app);
 
-const car = new SimpleCar(engine.scene);
-const hud = new HUD();
+const g = window as unknown as {
+  __GAME__?: unknown;
+  __GAME_STATE__?: unknown;
+  __EVENT_BUS__?: unknown;
+  __EVENTS__?: unknown;
+  render_game_to_text?: () => string;
+  advanceTime?: (ms: number) => Promise<void>;
+};
 
-const cameraTarget = new THREE.Vector3();
-const lookTarget = new THREE.Vector3();
-const smoothLookTarget = new THREE.Vector3();
+g.__GAME__ = game;
+g.__GAME_STATE__ = gameState;
+g.__EVENT_BUS__ = eventBus;
+g.__EVENTS__ = Events;
 
-function updateCamera(deltaTime: number, snap = false): void {
-  const position = car.getPosition();
-  const forward = car.getForward();
-  const smoothT = snap ? 1 : 1 - Math.exp(-CAMERA_SMOOTH_FACTOR * deltaTime);
+g.render_game_to_text = (): string => {
+  const player = gameState.player;
+  return JSON.stringify({
+    coords: 'origin:top-left x:right z:down',
+    mode: gameState.mode,
+    paused: gameState.paused,
+    racePhase: gameState.race.phase,
+    player: {
+      x: Math.round(player.x),
+      z: Math.round(player.z),
+      heading: Number(player.heading.toFixed(3)),
+      speedKmh: Math.round(player.speedKmh),
+      lap: player.lap,
+      position: player.position,
+      vehicleId: player.vehicleId,
+    },
+    race: {
+      lap: player.lap,
+      totalLaps: gameState.race.totalLaps,
+      position: player.position,
+      totalRacers: gameState.race.totalRacers,
+      phase: gameState.race.phase,
+    },
+    fps: Number(game.getFps().toFixed(1)),
+  });
+};
 
-  // Behind the car along -forward, then lift in world space
-  cameraTarget
-    .copy(position)
-    .addScaledVector(forward, -CAMERA_FOLLOW_DISTANCE);
-  cameraTarget.y = position.y + CAMERA_FOLLOW_HEIGHT;
-  engine.camera.position.lerp(cameraTarget, smoothT);
-
-  // Look at a point ahead on the road so the car stays in the lower frame
-  lookTarget
-    .copy(position)
-    .addScaledVector(forward, CAMERA_LOOK_AHEAD);
-  lookTarget.y = position.y + CAMERA_LOOK_HEIGHT;
-  smoothLookTarget.lerp(lookTarget, smoothT);
-  engine.camera.lookAt(smoothLookTarget);
-}
-
-// Snap once so the first frame is already in chase view
-updateCamera(0, true);
-
-engine.registerUpdate((deltaTime: number) => {
-  car.update(deltaTime);
-  hud.updateSpeed(car.getSpeed());
-  updateCamera(deltaTime);
-});
-
-engine.start();
+g.advanceTime = (ms: number): Promise<void> =>
+  new Promise((resolve) => {
+    const start = performance.now();
+    const step = (): void => {
+      if (performance.now() - start >= ms) {
+        resolve();
+      } else {
+        requestAnimationFrame(step);
+      }
+    };
+    requestAnimationFrame(step);
+  });

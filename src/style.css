@@ -4,9 +4,32 @@
   box-sizing: border-box;
 }
 
+:root {
+  color-scheme: dark;
+  --panel-bg: rgba(18, 24, 32, 0.88);
+  --panel-border: rgba(255, 255, 255, 0.12);
+  --accent: #ffb545;
+  --accent-2: #3fb0ff;
+  --text: #eef3f8;
+  --text-dim: #9aa7b4;
+}
+
+html,
 body {
   margin: 0;
+  height: 100%;
   overflow: hidden;
+  background: #0d1117;
+  font-family:
+    'Segoe UI',
+    'Microsoft YaHei',
+    system-ui,
+    -apple-system,
+    sans-serif;
+  color: var(--text);
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
 }
 
 canvas {
@@ -15,21 +38,477 @@ canvas {
   height: 100vh;
 }
 
-#hud {
-  position: fixed;
-  top: 16px;
-  right: 16px;
-  padding: 10px 16px;
-  background: rgba(0, 0, 0, 0.6);
-  color: #ffffff;
-  font-family: 'Courier New', Courier, monospace;
-  font-size: 16px;
-  border-radius: 6px;
-  pointer-events: none;
-  user-select: none;
-  z-index: 10;
+.hidden {
+  display: none !important;
 }
 
-#hud-speed {
-  font-weight: bold;
+.ui-root {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 20;
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+  background: rgba(8, 12, 18, 0.42);
+}
+
+.menu-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 320px;
+  padding: 28px 30px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: var(--panel-bg);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(8px);
+}
+
+.game-title {
+  margin: 0 0 2px;
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: #ffffff;
+}
+
+.game-subtitle {
+  margin: 0 0 10px;
+  font-size: 14px;
+  color: var(--text-dim);
+}
+
+.menu-heading {
+  margin: 0 0 4px;
+  font-size: 26px;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.menu-description {
+  margin: 0 0 6px;
+  font-size: 14px;
+  color: var(--text-dim);
+}
+
+.menu-btn {
+  height: 46px;
+  border: 1px solid var(--panel-border);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    transform 0.1s ease;
+}
+
+.menu-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.menu-btn:active {
+  transform: translateY(1px);
+}
+
+.menu-btn-primary {
+  background: linear-gradient(180deg, var(--accent), #e08f1f);
+  border-color: rgba(255, 220, 160, 0.35);
+  color: #1b1308;
+}
+
+.menu-btn-primary:hover {
+  background: linear-gradient(180deg, #ffc35f, #ec9a2a);
+}
+
+.menu-btn-secondary {
+  background: transparent;
+  color: var(--text-dim);
+}
+
+.menu-btn-small {
+  height: 38px;
+  font-size: 14px;
+}
+
+.difficulty-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.seg-btn {
+  height: 40px;
+  border: 1px solid var(--panel-border);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-dim);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.seg-btn.active {
+  background: var(--accent-2);
+  border-color: rgba(120, 200, 255, 0.5);
+  color: #06121c;
+  font-weight: 700;
+}
+
+.control-mode-row {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.garage-overlay {
+  align-items: flex-start;
+  padding: 4vh 4vw;
+}
+
+.garage-panel {
+  display: grid;
+  grid-template-columns: minmax(220px, 320px) minmax(260px, 360px);
+  gap: 22px;
+  width: min(760px, 92vw);
+  max-height: 86vh;
+  padding: 24px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: var(--panel-bg);
+  backdrop-filter: blur(8px);
+}
+
+.garage-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+}
+
+.garage-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--panel-border);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.garage-card.active {
+  border-color: var(--accent);
+  background: rgba(255, 181, 69, 0.14);
+}
+
+.garage-card-name {
+  font-weight: 650;
+}
+
+.garage-card-speed {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.garage-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.garage-name {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.garage-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.stat-row {
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  align-items: center;
+  gap: 10px;
+}
+
+.stat-label {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.stat-track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.stat-fill {
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--accent-2), var(--accent));
+  transition: width 0.2s ease;
+}
+
+.garage-swatches {
+  display: flex;
+  gap: 8px;
+}
+
+.color-swatch {
+  width: 30px;
+  height: 30px;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.color-swatch.active {
+  border-color: #ffffff;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.35);
+}
+
+.hud {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.speed-block {
+  position: fixed;
+  left: 18px;
+  bottom: 18px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 10px 16px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: var(--panel-bg);
+}
+
+.speed-value {
+  font-size: 34px;
+  font-weight: 750;
+  line-height: 1;
+  color: #ffffff;
+  transition: color 0.12s ease;
+}
+
+.speed-value.collision-flash {
+  color: #ff5d5d;
+}
+
+.speed-unit {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.race-info {
+  position: fixed;
+  left: 18px;
+  top: 18px;
+  display: grid;
+  grid-template-columns: repeat(2, auto);
+  gap: 4px 18px;
+  padding: 12px 16px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: var(--panel-bg);
+  font-size: 13px;
+}
+
+.race-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.race-label {
+  color: var(--text-dim);
+}
+
+.race-value {
+  color: #ffffff;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.minimap {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  width: 168px;
+  height: 168px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: #10141a;
+  pointer-events: none;
+}
+
+.hud-btn {
+  position: fixed;
+  right: 200px;
+  top: 18px;
+  height: 38px;
+  padding: 0 16px;
+  border: 1px solid var(--panel-border);
+  border-radius: 7px;
+  background: var(--panel-bg);
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.countdown-overlay {
+  align-items: center;
+  background: transparent;
+  font-size: 110px;
+  font-weight: 800;
+  color: #ffffff;
+  text-shadow:
+    0 0 24px rgba(0, 0, 0, 0.6),
+    0 4px 18px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+.result-detail {
+  margin: 0 0 6px;
+  font-size: 14px;
+  color: var(--text-dim);
+}
+
+.touch-controls {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 30;
+}
+
+.joystick-base {
+  position: fixed;
+  left: 26px;
+  bottom: 110px;
+  width: 120px;
+  height: 120px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.joystick-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 48px;
+  height: 48px;
+  margin: -24px 0 0 -24px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.55);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+}
+
+.pedal {
+  position: fixed;
+  width: 74px;
+  height: 74px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 650;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.pedal:active {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.pedal-throttle {
+  right: 30px;
+  bottom: 36px;
+}
+
+.pedal-brake {
+  right: 128px;
+  bottom: 52px;
+}
+
+.pedal-handbrake {
+  right: 44px;
+  bottom: 146px;
+  width: 62px;
+  height: 62px;
+}
+
+@media (max-width: 640px) {
+  .menu-panel {
+    min-width: 0;
+    width: min(86vw, 360px);
+    padding: 22px 20px;
+  }
+
+  .game-title {
+    font-size: 28px;
+  }
+
+  .garage-panel {
+    grid-template-columns: 1fr;
+    width: 92vw;
+    max-height: 80vh;
+    overflow-y: auto;
+  }
+
+  .speed-block {
+    left: 12px;
+    bottom: 150px;
+    padding: 8px 12px;
+  }
+
+  .speed-value {
+    font-size: 28px;
+  }
+
+  .minimap {
+    top: 12px;
+    right: 12px;
+    width: 132px;
+    height: 132px;
+  }
+
+  .hud-btn {
+    right: 154px;
+    top: 12px;
+    height: 34px;
+    padding: 0 12px;
+  }
+
+  .race-info {
+    left: 12px;
+    top: 12px;
+    grid-template-columns: repeat(2, auto);
+  }
 }
