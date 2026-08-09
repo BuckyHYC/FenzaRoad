@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { DRIVETRAIN, PHYSICS } from '../core/Constants';
 import type { VehicleSpec } from '../core/types';
 import { buildVehicle, type VehicleVisuals } from './VehicleFactory';
+import { sampleTorqueNm } from './torque';
 
 export interface DriveInput {
   throttle: number;
@@ -81,6 +82,20 @@ export class PlayerVehicle {
     );
   }
 
+  getEngineAccel(): number {
+    const torque = sampleTorqueNm(this.spec, this.getRpmRatio());
+    const gearRatio =
+      this.gear > 0
+        ? this.spec.gearRatios[Math.min(this.gear - 1, this.spec.gearRatios.length - 1)]
+        : DRIVETRAIN.REVERSE_GEAR_RATIO;
+    const reference = this.computeWheelAccel(
+      this.spec.peakTorqueNm,
+      this.spec.gearRatios[0],
+    );
+    const current = this.computeWheelAccel(torque, gearRatio);
+    return (current / reference) * this.spec.accelMs2;
+  }
+
   getVelocity(): { vx: number; vz: number } {
     const fx = Math.sin(this.heading);
     const fz = Math.cos(this.heading);
@@ -105,10 +120,7 @@ export class PlayerVehicle {
       this.gear = 1;
     }
 
-    const rpmRatio = this.getRpmRatio();
-    const torque = this.getTorqueFactor(rpmRatio);
-    const gearFactor = this.gear > 0 ? this.getGearFactor() : DRIVETRAIN.GEAR_BASE;
-    const engineAccel = spec.accelMs2 * torque * gearFactor;
+    const engineAccel = this.getEngineAccel();
 
     if (input.throttle > 0) {
       if (this.speed >= 0) {
@@ -189,13 +201,13 @@ export class PlayerVehicle {
     return speeds;
   }
 
-  private getTorqueFactor(rpmRatio: number): number {
-    const r = Math.max(0, Math.min(1, rpmRatio));
-    return DRIVETRAIN.TORQUE_BASE + DRIVETRAIN.TORQUE_SWING * Math.sin(Math.PI * r);
-  }
-
-  private getGearFactor(): number {
-    return DRIVETRAIN.GEAR_BASE + (this.spec.gears - this.gear) * DRIVETRAIN.GEAR_STEP;
+  private computeWheelAccel(torqueNm: number, gearRatio: number): number {
+    const mass =
+      this.spec.length *
+      this.spec.width *
+      this.spec.height *
+      PHYSICS.VEHICLE_MASS_DENSITY;
+    return (torqueNm * gearRatio * this.spec.finalDrive) / WHEEL_RADIUS / mass;
   }
 
   private computeTargetRpm(speedMs: number): number {

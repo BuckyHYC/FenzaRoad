@@ -31,6 +31,12 @@ export class TouchControls {
     this.root.appendChild(this.makeButton('油门', () => { this.throttle = true; this.sync(); }, () => { this.throttle = false; this.sync(); }, 'pedal pedal-throttle'));
     this.root.appendChild(this.makeButton('刹车', () => { this.brake = true; this.sync(); }, () => { this.brake = false; this.sync(); }, 'pedal pedal-brake'));
     this.root.appendChild(this.makeButton('手刹', () => { this.handbrake = true; this.sync(); }, () => { this.handbrake = false; this.sync(); }, 'pedal pedal-handbrake'));
+    const camBtn = el('button', 'cam-btn', '视角') as HTMLButtonElement;
+    camBtn.setAttribute('aria-label', '切换视角');
+    camBtn.addEventListener('click', () => {
+      this.input.trigger('camera');
+    });
+    this.root.appendChild(camBtn);
 
     this.base.addEventListener('pointerdown', this.onPointerDown);
     this.base.addEventListener('pointermove', this.onPointerMove);

@@ -18,6 +18,10 @@ export interface VehicleSpec {
   engineIdleRpm: number;
   accelMs2: number;
   brakeMs2: number;
+  torqueCurveNm: number[];
+  peakTorqueNm: number;
+  gearRatios: number[];
+  finalDrive: number;
   steerRate: number;
   grip: number;
   length: number;

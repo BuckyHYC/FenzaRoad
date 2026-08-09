@@ -289,15 +289,21 @@ canvas {
 
 .garage-panel {
   display: grid;
-  grid-template-columns: minmax(220px, 320px) minmax(260px, 360px);
+  grid-template-columns: minmax(220px, 290px) minmax(0, 1fr);
   gap: 22px;
-  width: min(760px, 92vw);
+  width: min(880px, 94vw);
   max-height: 86vh;
   padding: 24px;
   border: 1px solid var(--panel-border);
   border-radius: 8px;
   background: var(--panel-bg);
   backdrop-filter: blur(8px);
+  overflow: hidden;
+  align-items: start;
+}
+
+.garage-heading {
+  grid-column: 1 / -1;
 }
 
 .garage-list {
@@ -337,9 +343,24 @@ canvas {
 }
 
 .garage-detail {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+  max-height: 78vh;
+  overflow-y: auto;
+  align-items: start;
+  padding-right: 6px;
+}
+
+.garage-detail-col {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-width: 0;
+}
+
+.garage-detail > .menu-btn {
+  grid-column: 1 / -1;
 }
 
 .garage-thumb-wrap {
@@ -402,6 +423,58 @@ canvas {
   font-size: 22px;
   font-weight: 650;
   letter-spacing: 0;
+}
+
+.torque-panel {
+  margin-top: 2px;
+}
+
+.torque-title {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text-dim);
+}
+
+.torque-curve {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--panel-border);
+  border-radius: 7px;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01));
+}
+
+.gear-ratio-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  height: 58px;
+  margin-top: 10px;
+  padding: 0 4px;
+}
+
+.gear-cell {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  height: 100%;
+  min-width: 0;
+}
+
+.gear-bar {
+  width: 16px;
+  max-width: 100%;
+  border-radius: 3px 3px 0 0;
+  background: linear-gradient(180deg, var(--accent-2), var(--accent));
+}
+
+.gear-label {
+  font-size: 10px;
+  color: var(--text-dim);
 }
 
 .garage-stats {
@@ -707,6 +780,27 @@ canvas {
   height: 62px;
 }
 
+.cam-btn {
+  position: fixed;
+  right: 36px;
+  bottom: 224px;
+  width: 62px;
+  height: 62px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 650;
+  pointer-events: auto;
+  touch-action: none;
+  cursor: pointer;
+}
+
+.cam-btn:active {
+  background: rgba(255, 255, 255, 0.28);
+}
+
 @keyframes overlay-fade {
   from {
     opacity: 0;
@@ -775,6 +869,12 @@ canvas {
     width: 92vw;
     max-height: 80vh;
     overflow-y: auto;
+  }
+
+  .garage-detail {
+    overflow: visible;
+    max-height: none;
+    grid-template-columns: 1fr;
   }
 
   .gauge-cluster {

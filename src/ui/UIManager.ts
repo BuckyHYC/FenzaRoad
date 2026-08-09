@@ -1,11 +1,12 @@
 import { RACE_CONFIG, VEHICLES } from '../core/Constants';
 import { eventBus, Events } from '../core/EventBus';
 import { gameState } from '../core/GameState';
-import type { ControlMode, Density, Difficulty, RacePhase } from '../core/types';
+import type { ControlMode, Density, Difficulty, RacePhase, VehicleSpec } from '../core/types';
 import type { InputSystem } from '../systems/InputSystem';
 import type { Game } from '../core/Game';
 import { Minimap } from './Minimap';
 import { TouchControls } from './TouchControls';
+import { sampleTorqueNm } from '../gameplay/torque';
 
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -427,10 +428,12 @@ export class UIManager {
   private buildGarage(): HTMLDivElement {
     const overlay = el('div', 'overlay garage-overlay') as HTMLDivElement;
     const panel = el('div', 'garage-panel') as HTMLDivElement;
-    panel.appendChild(el('h1', 'menu-heading', '车库'));
+    panel.appendChild(el('h1', 'menu-heading garage-heading', '车库'));
     const list = el('div', 'garage-list') as HTMLDivElement;
     panel.appendChild(list);
     const detail = el('div', 'garage-detail') as HTMLDivElement;
+    const mainCol = el('div', 'garage-detail-col') as HTMLDivElement;
+    const specCol = el('div', 'garage-detail-col') as HTMLDivElement;
     const stage = el('div', 'garage-stage') as HTMLDivElement;
     const prevArrow = button('garage-arrow garage-arrow-left', '‹', () => this.cycleGarage(-1));
     prevArrow.setAttribute('aria-label', '上一辆');
@@ -442,9 +445,10 @@ export class UIManager {
     const nextArrow = button('garage-arrow garage-arrow-right', '›', () => this.cycleGarage(1));
     nextArrow.setAttribute('aria-label', '下一辆');
     stage.append(prevArrow, thumbWrap, nextArrow);
-    detail.appendChild(stage);
+    mainCol.appendChild(stage);
     const name = el('h2', 'garage-name') as HTMLHeadingElement;
     name.id = 'garage-name';
+    mainCol.appendChild(name);
     const statRows = el('div', 'garage-stats') as HTMLDivElement;
     const statDefs: { key: string; label: string; max: number }[] = [
       { key: 'speed', label: '极速', max: 62 },
@@ -463,11 +467,19 @@ export class UIManager {
       statRows.appendChild(row);
       this.statBars.set(def.key, fill);
     }
-    detail.appendChild(name);
-    detail.appendChild(statRows);
+    specCol.appendChild(statRows);
+    const torquePanel = el('div', 'torque-panel') as HTMLDivElement;
+    torquePanel.appendChild(el('p', 'torque-title', '扭矩曲线'));
+    const torqueCanvas = el('canvas', 'torque-curve') as HTMLCanvasElement;
+    torqueCanvas.id = 'torque-curve';
+    torquePanel.appendChild(torqueCanvas);
+    const gearRow = el('div', 'gear-ratio-row') as HTMLDivElement;
+    torquePanel.appendChild(gearRow);
+    specCol.appendChild(torquePanel);
     const swatches = el('div', 'garage-swatches') as HTMLDivElement;
     swatches.id = 'garage-swatches';
-    detail.appendChild(swatches);
+    mainCol.appendChild(swatches);
+    detail.append(mainCol, specCol);
     detail.appendChild(button('menu-btn menu-btn-primary', '使用此车辆', () => this.confirmGarageSelection()));
     detail.appendChild(button('menu-btn menu-btn-secondary', '返回', () => this.game.showMenu()));
     panel.appendChild(detail);
@@ -618,6 +630,8 @@ export class UIManager {
     for (const [key, fill] of this.statBars) {
       fill.style.width = `${Math.round((stats[key] / maxes[key]) * 100)}%`;
     }
+    this.drawTorqueCurve(spec);
+    this.buildGearRatioBars(spec);
     this.garageSwatches.replaceChildren();
     for (const color of spec.colorOptions) {
       const swatch = button('color-swatch', '', () => {
@@ -632,6 +646,106 @@ export class UIManager {
     }
     const thumbnailUrl = this.game.captureGarageThumbnail();
     if (thumbnailUrl) this.garageThumb.src = thumbnailUrl;
+  }
+
+  private drawTorqueCurve(spec: VehicleSpec): void {
+    const canvas = this.garageOverlay.querySelector('#torque-curve');
+    if (!(canvas instanceof HTMLCanvasElement)) return;
+    const dpr = window.devicePixelRatio || 1;
+    const width = 340;
+    const height = 150;
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, width, height);
+
+    const padL = 34;
+    const padR = 12;
+    const padT = 14;
+    const padB = 24;
+    const plotW = width - padL - padR;
+    const plotH = height - padT - padB;
+    const maxTorque = Math.max(...spec.torqueCurveNm) * 1.15;
+    const xFor = (ratio: number): number => padL + ratio * plotW;
+    const yFor = (torque: number): number =>
+      padT + plotH - (torque / maxTorque) * plotH;
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 4; i += 1) {
+      const y = padT + (plotH / 4) * i;
+      ctx.beginPath();
+      ctx.moveTo(padL, y);
+      ctx.lineTo(width - padR, y);
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = '#9aa7b4';
+    ctx.font = '10px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(String(spec.engineIdleRpm), padL, height - 6);
+    ctx.fillText(String(spec.engineRedlineRpm), width - padR, height - 6);
+    ctx.textAlign = 'right';
+    ctx.fillText(`${Math.round(maxTorque)} Nm`, padL - 4, padT + 4);
+
+    const samples = 40;
+    ctx.beginPath();
+    for (let i = 0; i <= samples; i += 1) {
+      const ratio = i / samples;
+      const torque = sampleTorqueNm(spec, ratio);
+      const x = xFor(ratio);
+      const y = yFor(torque);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.lineTo(width - padR, padT + plotH);
+    ctx.lineTo(padL, padT + plotH);
+    ctx.closePath();
+    const gradient = ctx.createLinearGradient(0, padT, 0, padT + plotH);
+    gradient.addColorStop(0, 'rgba(255, 181, 69, 0.28)');
+    gradient.addColorStop(1, 'rgba(255, 181, 69, 0.02)');
+    ctx.fillStyle = gradient;
+    ctx.fill();
+
+    ctx.beginPath();
+    for (let i = 0; i <= samples; i += 1) {
+      const ratio = i / samples;
+      const torque = sampleTorqueNm(spec, ratio);
+      const x = xFor(ratio);
+      const y = yFor(torque);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = '#ffb545';
+    ctx.lineWidth = 2.5;
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+
+    let peakIndex = 0;
+    for (let i = 1; i < spec.torqueCurveNm.length; i += 1) {
+      if (spec.torqueCurveNm[i] > spec.torqueCurveNm[peakIndex]) peakIndex = i;
+    }
+    const peakRatio = peakIndex / (spec.torqueCurveNm.length - 1);
+    ctx.beginPath();
+    ctx.arc(xFor(peakRatio), yFor(spec.torqueCurveNm[peakIndex]), 4, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+  }
+
+  private buildGearRatioBars(spec: VehicleSpec): void {
+    const row = this.garageOverlay.querySelector('.gear-ratio-row');
+    if (!(row instanceof HTMLDivElement)) return;
+    row.replaceChildren();
+    const maxRatio = Math.max(...spec.gearRatios);
+    for (let i = 0; i < spec.gearRatios.length; i += 1) {
+      const cell = el('div', 'gear-cell') as HTMLDivElement;
+      const bar = el('div', 'gear-bar') as HTMLDivElement;
+      bar.style.height = `${Math.round((spec.gearRatios[i] / maxRatio) * 100)}%`;
+      cell.append(bar, el('span', 'gear-label', `D${i + 1}`));
+      row.appendChild(cell);
+    }
   }
 
   private subscribeEvents(): void {

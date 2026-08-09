@@ -63,6 +63,10 @@ export class InputSystem {
     return true;
   }
 
+  trigger(action: InputAction): void {
+    this.pressedQueue.push(action);
+  }
+
   dispose(): void {
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
