@@ -149,6 +149,9 @@ export class PlayerVehicle {
     group.rotation.y = this.heading;
     this.visuals.frontLeftPivot.rotation.y = this.steerAngle;
     this.visuals.frontRightPivot.rotation.y = this.steerAngle;
+    if (this.visuals.steeringWheel) {
+      this.visuals.steeringWheel.rotation.z = this.steerAngle * 1.8;
+    }
     for (const wheel of this.visuals.wheels) {
       wheel.rotation.set(this.wheelRoll, 0, Math.PI / 2);
     }

@@ -86,9 +86,11 @@ test('hood camera tracks the player vehicle without lag', async ({ page }) => {
     if (game.cameraMode !== 'hood') return 999;
     const fx = Math.sin(game.player.heading);
     const fz = Math.cos(game.player.heading);
+    const rx = fz;
+    const rz = -fx;
     return Math.hypot(
-      game.camera.position.x - (game.player.x + fx * 0.6),
-      game.camera.position.z - (game.player.z + fz * 0.6),
+      game.camera.position.x - (game.player.x + fx * 0.08 + rx * -0.34),
+      game.camera.position.z - (game.player.z + fz * 0.08 + rz * -0.34),
     );
   });
   await page.keyboard.up('w');

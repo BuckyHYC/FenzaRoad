@@ -7,6 +7,8 @@ export interface VehicleVisuals {
   frontLeftPivot: THREE.Group;
   frontRightPivot: THREE.Group;
   wheels: THREE.Group[];
+  glassMesh: THREE.Mesh | null;
+  steeringWheel: THREE.Group | null;
 }
 
 interface CabinProfile {
@@ -576,15 +578,16 @@ export function buildVehicle(
   const attachStatic = (
     geo: THREE.BufferGeometry | null,
     mat: THREE.Material,
-  ): void => {
-    if (!geo) return;
+  ): THREE.Mesh | null => {
+    if (!geo) return null;
     const mesh = new THREE.Mesh(geo, mat);
     mesh.castShadow = castShadows;
     mesh.receiveShadow = true;
     group.add(mesh);
+    return mesh;
   };
   attachStatic(statics.body, bodyMat);
-  attachStatic(statics.glass, glassMat);
+  const glassMesh = attachStatic(statics.glass, glassMat);
   attachStatic(statics.dark, darkMat);
   attachStatic(statics.headlight, headlightMat);
   attachStatic(statics.taillight, taillightMat);
@@ -662,5 +665,89 @@ export function buildVehicle(
   createWheel(null, -halfWidth, -halfLength);
   createWheel(null, halfWidth, -halfLength);
 
-  return { group, frontLeftPivot, frontRightPivot, wheels };
+  const profile = STYLE_PROFILES[spec.bodyStyle];
+  const bodyTop = wheelR - 0.02 + H * 0.3 + 0.09;
+  const cabinH = H * profile.cabin.heightRatio;
+  const cabinZ = L * profile.cabin.zOffset;
+  const cabinLen = L * profile.cabin.lengthRatio;
+  const cabinW = W * profile.cabin.widthRatio;
+  const cabinTop = bodyTop + 0.09 + cabinH;
+  const cabinFront = cabinZ + cabinLen / 2;
+  const interiorMat = material(
+    'interior',
+    () =>
+      new THREE.MeshStandardMaterial({
+        color: 0x1d2126,
+        roughness: 0.7,
+        metalness: 0.15,
+      }),
+  );
+  let steeringWheel: THREE.Group | null = null;
+  if (highQuality) {
+    const dashboard = new THREE.Mesh(
+      geometry(
+        'interior-dashboard',
+        () => new THREE.BoxGeometry(cabinW * 0.98, 0.16, 0.5),
+      ),
+      interiorMat,
+    );
+    dashboard.position.set(0, bodyTop + 0.2, cabinFront - 0.3);
+    dashboard.castShadow = false;
+    group.add(dashboard);
+
+    const pillarGeo = geometry(
+      'interior-pillar',
+      () => new THREE.BoxGeometry(0.09, 1, 0.09),
+    );
+    const pillarLen = cabinTop - bodyTop;
+    for (const side of [-1, 1]) {
+      const pillar = new THREE.Mesh(pillarGeo, interiorMat);
+      pillar.scale.y = pillarLen;
+      pillar.position.set(
+        side * (cabinW / 2 - 0.05),
+        bodyTop + pillarLen / 2,
+        cabinFront - 0.18,
+      );
+      pillar.rotation.x = -0.5;
+      pillar.castShadow = false;
+      group.add(pillar);
+    }
+
+    const headliner = new THREE.Mesh(
+      geometry(
+        'interior-headliner',
+        () => new THREE.BoxGeometry(cabinW * 0.96, 0.05, cabinLen * 0.95),
+      ),
+      interiorMat,
+    );
+    headliner.position.set(0, cabinTop - 0.05, cabinZ);
+    headliner.castShadow = false;
+    group.add(headliner);
+
+    const steeringPivot = new THREE.Group();
+    steeringPivot.position.set(-0.34, bodyTop + 0.38, cabinFront - 0.42);
+    steeringPivot.rotation.x = -0.55;
+    steeringWheel = new THREE.Group();
+    const wheelRing = new THREE.Mesh(
+      geometry(
+        'interior-wheel-ring',
+        () => new THREE.TorusGeometry(0.17, 0.026, 8, 24),
+      ),
+      interiorMat,
+    );
+    const wheelHub = new THREE.Mesh(
+      geometry(
+        'interior-wheel-hub',
+        () => new THREE.CylinderGeometry(0.045, 0.045, 0.05, 12),
+      ),
+      rimMat,
+    );
+    wheelRing.castShadow = false;
+    wheelHub.castShadow = false;
+    steeringWheel.add(wheelRing, wheelHub);
+    steeringPivot.add(steeringWheel);
+    group.add(steeringPivot);
+  }
+
+  return { group, frontLeftPivot, frontRightPivot, wheels, glassMesh, steeringWheel };
 }

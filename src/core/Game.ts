@@ -87,8 +87,6 @@ export class Game {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.shadowMap.enabled = !lowPowerRender;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    this.renderer.shadowMap.autoUpdate = false;
-    this.renderer.shadowMap.needsUpdate = true;
     container.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
@@ -199,6 +197,9 @@ export class Game {
     eventBus.emit(Events.GARAGE_SELECTED, { vehicleId, color });
     this.scene.remove(this.player.visuals.group);
     this.player = this.createPlayer(vehicleId, color);
+    if (this.player.visuals.glassMesh) {
+      this.player.visuals.glassMesh.visible = this.cameraMode === 'chase';
+    }
     this.showMenu();
   }
 
@@ -312,9 +313,6 @@ export class Game {
     const dt = Math.min(this.clock.getDelta(), 0.1);
     this.frameCount += 1;
     this.frameTime += dt;
-    if (this.frameCount % 6 === 1) {
-      this.renderer.shadowMap.needsUpdate = true;
-    }
     this.accumulator += dt;
     while (this.accumulator >= PHYSICS.FIXED_STEP) {
       this.tick(PHYSICS.FIXED_STEP);
@@ -448,6 +446,9 @@ export class Game {
     if (this.input.consume('reset')) this.resetVehicle();
     if (this.input.consume('camera')) {
       this.cameraMode = this.cameraMode === 'chase' ? 'hood' : 'chase';
+      if (this.player.visuals.glassMesh) {
+        this.player.visuals.glassMesh.visible = this.cameraMode === 'chase';
+      }
     }
     if (this.input.consume('mute')) this.toggleMute();
   }
@@ -468,14 +469,22 @@ export class Game {
         this.player.z + fz * CAMERA_CONFIG.LOOK_AHEAD,
       );
     } else {
-      desiredX = this.player.x + fx * 0.6;
-      desiredY = CAMERA_CONFIG.HOOD_HEIGHT;
-      desiredZ = this.player.z + fz * 0.6;
+      const rx = fz;
+      const rz = -fx;
+      desiredX =
+        this.player.x +
+        fx * CAMERA_CONFIG.INTERIOR_FORWARD +
+        rx * CAMERA_CONFIG.INTERIOR_LATERAL;
+      desiredY = CAMERA_CONFIG.INTERIOR_EYE_HEIGHT;
+      desiredZ =
+        this.player.z +
+        fz * CAMERA_CONFIG.INTERIOR_FORWARD +
+        rz * CAMERA_CONFIG.INTERIOR_LATERAL;
       this.cameraPosition.set(desiredX, desiredY, desiredZ);
       this.cameraLook.set(
-        this.player.x + fx * 14,
-        1.1,
-        this.player.z + fz * 14,
+        this.player.x + fx * 20,
+        1.12,
+        this.player.z + fz * 20,
       );
       this.camera.position.copy(this.cameraPosition);
       this.camera.lookAt(this.cameraLook);
