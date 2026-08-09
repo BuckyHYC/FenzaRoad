@@ -104,7 +104,8 @@ export class TouchControls {
       dy = (dy / dist) * this.maxRadius;
     }
     this.knob.style.transform = `translate(${dx}px, ${dy}px)`;
-    this.moveX = dx / this.maxRadius;
+    // Screen right must turn the vehicle right; vehicle physics uses positive steer as left turn.
+    this.moveX = -dx / this.maxRadius;
     this.moveZ = -dy / this.maxRadius;
     this.sync();
   }

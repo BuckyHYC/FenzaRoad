@@ -42,8 +42,8 @@ export class InputSystem {
     let mz = 0;
     if (this.keys.has('KeyA')) mx += 1;
     if (this.keys.has('KeyD')) mx -= 1;
-    if (this.keys.has('ArrowLeft')) mx -= 1;
-    if (this.keys.has('ArrowRight')) mx += 1;
+    if (this.keys.has('ArrowLeft')) mx += 1;
+    if (this.keys.has('ArrowRight')) mx -= 1;
     if (this.keys.has('KeyW') || this.keys.has('ArrowUp')) mz += 1;
     if (this.keys.has('KeyS') || this.keys.has('ArrowDown')) mz -= 1;
 

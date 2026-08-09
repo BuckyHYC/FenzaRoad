@@ -187,6 +187,65 @@ test('control mode choice controls joystick visibility', async ({ page }) => {
   await expect(page.locator('.touch-controls')).toBeVisible();
 });
 
+test('mobile joystick steer direction matches screen left/right', async ({ page }) => {
+  await boot(page);
+  await page.evaluate(() => {
+    const state = (window as unknown as { __GAME_STATE__?: unknown }).__GAME_STATE__ as unknown as {
+      settings: { controlMode: string };
+    };
+    state.settings.controlMode = 'mobile';
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      startFreeRoam: () => void;
+    };
+    game.startFreeRoam();
+  });
+  await expect(page.locator('#hud')).toBeVisible();
+  await expect(page.locator('.joystick-base')).toBeVisible();
+
+  const heading = async (): Promise<number> => {
+    const state = await page.evaluate(() => {
+      const g = window as unknown as GameWindow;
+      return JSON.parse(g.render_game_to_text()) as { player: { heading: number } };
+    });
+    return state.player.heading;
+  };
+
+  const box = await page.locator('.joystick-base').boundingBox();
+  if (!box) throw new Error('joystick base missing');
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+
+  const cruise = async (): Promise<void> => {
+    await page.evaluate(() => {
+      const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+        player: { speed: number; lateral: number };
+      };
+      game.player.speed = 28;
+      game.player.lateral = 0;
+    });
+  };
+
+  await cruise();
+  const before = await heading();
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  await page.mouse.move(cx + 36, cy, { steps: 6 });
+  await page.waitForTimeout(450);
+  await page.mouse.up();
+  const afterRight = await heading();
+
+  await cruise();
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  await page.mouse.move(cx - 36, cy, { steps: 6 });
+  await page.waitForTimeout(450);
+  await page.mouse.up();
+  const afterLeft = await heading();
+
+  expect(afterRight).toBeLessThan(before);
+  expect(afterLeft).toBeGreaterThan(afterRight);
+});
+
 test('race countdown, debug lap/finish and restart', async ({ page }) => {
   await boot(page);
   await page.getByRole('button', { name: '竞速模式' }).click();
