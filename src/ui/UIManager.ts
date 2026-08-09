@@ -51,6 +51,9 @@ export class UIManager {
   private readonly resultOverlay: HTMLDivElement;
   private readonly raceInfo: HTMLDivElement;
   private readonly speedValue: HTMLSpanElement;
+  private readonly tachValue: HTMLSpanElement;
+  private readonly tachBar: HTMLDivElement;
+  private readonly gearValue: HTMLSpanElement;
   private readonly lapValue: HTMLSpanElement;
   private readonly positionValue: HTMLSpanElement;
   private readonly timeValue: HTMLSpanElement;
@@ -94,6 +97,9 @@ export class UIManager {
     );
 
     const speedElement = this.hudOverlay.querySelector('#hud-speed');
+    const tachElement = this.hudOverlay.querySelector('#hud-rpm');
+    const tachBarElement = this.hudOverlay.querySelector('#hud-rpm-bar');
+    const gearElement = this.hudOverlay.querySelector('#hud-gear');
     const lapElement = this.hudOverlay.querySelector('#hud-lap');
     const positionElement = this.hudOverlay.querySelector('#hud-position');
     const timeElement = this.hudOverlay.querySelector('#hud-time');
@@ -102,6 +108,9 @@ export class UIManager {
     const minimapElement = this.hudOverlay.querySelector('#minimap');
     if (
       !(speedElement instanceof HTMLSpanElement) ||
+      !(tachElement instanceof HTMLSpanElement) ||
+      !(tachBarElement instanceof HTMLDivElement) ||
+      !(gearElement instanceof HTMLSpanElement) ||
       !(lapElement instanceof HTMLSpanElement) ||
       !(positionElement instanceof HTMLSpanElement) ||
       !(timeElement instanceof HTMLSpanElement) ||
@@ -112,6 +121,9 @@ export class UIManager {
       throw new Error('HUD elements missing');
     }
     this.speedValue = speedElement;
+    this.tachValue = tachElement;
+    this.tachBar = tachBarElement;
+    this.gearValue = gearElement;
     this.lapValue = lapElement;
     this.positionValue = positionElement;
     this.timeValue = timeElement;
@@ -234,6 +246,9 @@ export class UIManager {
   updateHud(): void {
     const speedKmh = Math.round(Math.abs(gameState.player.speedKmh));
     this.speedValue.textContent = String(speedKmh);
+    this.tachValue.textContent = String(Math.round(gameState.player.rpm));
+    this.tachBar.style.width = `${Math.round(gameState.player.rpmRatio * 100)}%`;
+    this.gearValue.textContent = gameState.player.gear === 0 ? 'R' : `D${gameState.player.gear}`;
     if (gameState.mode === 'race') {
       this.lapValue.textContent = `${Math.min(gameState.player.lap, gameState.race.totalLaps)}/${gameState.race.totalLaps}`;
       this.positionValue.textContent = `${gameState.player.position}/${gameState.race.totalRacers}`;
@@ -387,13 +402,36 @@ export class UIManager {
   private buildHud(): HTMLDivElement {
     const hud = el('div', 'hud hidden') as HTMLDivElement;
     hud.id = 'hud';
+    const gaugeCluster = el('div', 'gauge-cluster') as HTMLDivElement;
     const speedBlock = el('div', 'speed-block') as HTMLDivElement;
     const speedValue = el('span', 'speed-value') as HTMLSpanElement;
     speedValue.id = 'hud-speed';
     speedValue.textContent = '0';
     speedBlock.appendChild(speedValue);
     speedBlock.appendChild(el('span', 'speed-unit', 'km/h'));
-    hud.appendChild(speedBlock);
+    gaugeCluster.appendChild(speedBlock);
+
+    const tachBlock = el('div', 'tach-block') as HTMLDivElement;
+    tachBlock.id = 'hud-tach';
+    const tachTop = el('div', 'tach-top') as HTMLDivElement;
+    const gearValue = el('span', 'gear-value') as HTMLSpanElement;
+    gearValue.id = 'hud-gear';
+    gearValue.textContent = 'D1';
+    tachTop.appendChild(gearValue);
+    tachTop.appendChild(el('span', 'tach-label', 'RPM'));
+    const tachValue = el('span', 'tach-value') as HTMLSpanElement;
+    tachValue.id = 'hud-rpm';
+    tachValue.textContent = '0';
+    const tachUnit = el('span', 'tach-unit', 'r/min');
+    tachValue.appendChild(tachUnit);
+    const tachBarWrap = el('div', 'tach-bar-wrap') as HTMLDivElement;
+    const tachBar = el('div', 'tach-bar-fill') as HTMLDivElement;
+    tachBar.id = 'hud-rpm-bar';
+    tachBarWrap.appendChild(el('div', 'tach-redline'));
+    tachBarWrap.appendChild(tachBar);
+    tachBlock.append(tachTop, tachValue, tachBarWrap);
+    gaugeCluster.appendChild(tachBlock);
+    hud.appendChild(gaugeCluster);
 
     const raceInfo = el('div', 'race-info hidden') as HTMLDivElement;
     raceInfo.id = 'hud-race';

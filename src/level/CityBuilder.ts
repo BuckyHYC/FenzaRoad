@@ -612,6 +612,26 @@ export function buildCity(scene: THREE.Scene): City {
 
     const chunkSignals = signalInstances[c];
     if (chunkSignals.length > 0) {
+      const signalPoleMesh = makeInstanced(
+        new THREE.CylinderGeometry(0.08, 0.12, 4.7, 6),
+        poleMaterial,
+        chunkSignals.length,
+      );
+      signalPoleMesh.name = 'signal-poles';
+      for (let i = 0; i < chunkSignals.length; i += 1) {
+        const signal = chunkSignals[i];
+        signalPoleMesh.setMatrixAt(
+          i,
+          new THREE.Matrix4().compose(
+            new THREE.Vector3(signal.x, 2.35, signal.z),
+            new THREE.Quaternion(),
+            new THREE.Vector3(1, 1, 1),
+          ),
+        );
+      }
+      signalPoleMesh.instanceMatrix.needsUpdate = true;
+      chunkGroup.add(signalPoleMesh);
+
       const redSignals = makeInstanced(
         new THREE.BoxGeometry(0.55, 0.75, 0.55),
         redSignalMaterial,

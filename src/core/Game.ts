@@ -387,7 +387,8 @@ export class Game {
     this.updateSun();
     this.syncGameState();
     this.audio.updateEngine(
-      this.player.getSpeedMs() / this.player.spec.topSpeedMs,
+      this.player.getRpmRatio(),
+      this.player.rpm,
       Math.max(0, input.moveZ),
     );
     this.ui.updateHud();
@@ -412,7 +413,8 @@ export class Game {
       this.resolveVehicleCollisions();
       this.clampToBounds(this.player);
       this.audio.updateEngine(
-        this.player.getSpeedMs() / this.player.spec.topSpeedMs,
+        this.player.getRpmRatio(),
+        this.player.rpm,
         Math.max(0, input.moveZ),
       );
     }
@@ -429,6 +431,9 @@ export class Game {
     gameState.player.z = this.player.z;
     gameState.player.heading = this.player.heading;
     gameState.player.speedKmh = this.player.getSpeedMs() * 3.6;
+    gameState.player.rpm = Math.round(this.player.rpm);
+    gameState.player.rpmRatio = this.player.getRpmRatio();
+    gameState.player.gear = this.player.gear;
     if (gameState.mode === 'race') {
       const racer = this.race.racers[this.race.playerIndex];
       gameState.player.lap = racer.lap;

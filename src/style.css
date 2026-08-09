@@ -292,11 +292,16 @@ canvas {
   pointer-events: none;
 }
 
-.speed-block {
+.gauge-cluster {
   position: fixed;
-  left: 18px;
-  bottom: 18px;
+  top: 198px;
+  right: 18px;
   display: flex;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.speed-block {
   align-items: baseline;
   gap: 8px;
   padding: 10px 16px;
@@ -320,6 +325,76 @@ canvas {
 .speed-unit {
   font-size: 13px;
   color: var(--text-dim);
+}
+
+.tach-block {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 176px;
+  padding: 10px 14px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: var(--panel-bg);
+}
+
+.tach-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.gear-value {
+  font-size: 22px;
+  font-weight: 750;
+  line-height: 1;
+  color: #ffffff;
+}
+
+.tach-label {
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0;
+  color: var(--text-dim);
+}
+
+.tach-value {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: #ffffff;
+  font-variant-numeric: tabular-nums;
+}
+
+.tach-unit {
+  margin-left: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-dim);
+}
+
+.tach-bar-wrap {
+  position: relative;
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.tach-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #38d16a 0%, #f2c94c 66%, #ff5d5d 86%, #ff3131 100%);
+  transition: width 0.08s linear;
+}
+
+.tach-redline {
+  position: absolute;
+  top: 0;
+  right: 10%;
+  width: 2px;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.55);
 }
 
 .race-info {
@@ -482,14 +557,28 @@ canvas {
     overflow-y: auto;
   }
 
+  .gauge-cluster {
+    top: 154px;
+    right: 12px;
+    gap: 8px;
+  }
+
   .speed-block {
-    left: 12px;
-    bottom: 150px;
     padding: 8px 12px;
   }
 
   .speed-value {
     font-size: 28px;
+  }
+
+  .tach-block {
+    min-width: 140px;
+    padding: 8px 10px;
+  }
+
+  .tach-value,
+  .gear-value {
+    font-size: 18px;
   }
 
   .minimap {

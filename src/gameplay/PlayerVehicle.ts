@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { PHYSICS } from '../core/Constants';
+import { DRIVETRAIN, PHYSICS } from '../core/Constants';
 import type { VehicleSpec } from '../core/types';
 import { buildVehicle, type VehicleVisuals } from './VehicleFactory';
 
@@ -21,9 +21,13 @@ export class PlayerVehicle {
   heading = 0;
   speed = 0;
   lateral = 0;
+  gear = 1;
+  rpm = 0;
 
   private steerAngle = 0;
   private wheelRoll = 0;
+  private shiftTimer = 0;
+  private readonly gearMaxSpeeds: number[];
 
   constructor(
     spec: VehicleSpec,
@@ -33,6 +37,8 @@ export class PlayerVehicle {
     highQuality = true,
   ) {
     this.spec = spec;
+    this.gearMaxSpeeds = PlayerVehicle.buildGearMaxSpeeds(spec);
+    this.rpm = spec.engineIdleRpm;
     this.visuals = buildVehicle(spec, color, castShadows, highQuality);
     scene.add(this.visuals.group);
   }
@@ -43,6 +49,9 @@ export class PlayerVehicle {
     this.heading = heading;
     this.speed = 0;
     this.lateral = 0;
+    this.gear = 1;
+    this.rpm = this.spec.engineIdleRpm;
+    this.shiftTimer = 0;
     this.steerAngle = 0;
     this.wheelRoll = 0;
     this.syncVisuals();
@@ -59,6 +68,17 @@ export class PlayerVehicle {
 
   getSpeedMs(): number {
     return Math.hypot(this.speed, this.lateral);
+  }
+
+  getRpmRatio(): number {
+    const range = Math.max(
+      1,
+      this.spec.engineRedlineRpm - this.spec.engineIdleRpm,
+    );
+    return Math.max(
+      0,
+      Math.min(1, (this.rpm - this.spec.engineIdleRpm) / range),
+    );
   }
 
   getVelocity(): { vx: number; vz: number } {
@@ -78,11 +98,22 @@ export class PlayerVehicle {
 
   update(dt: number, input: DriveInput): void {
     const spec = this.spec;
+    this.shiftTimer = Math.max(0, this.shiftTimer - dt);
+    if (this.speed < -0.5) {
+      this.gear = 0;
+    } else if (Math.abs(this.speed) < 0.8) {
+      this.gear = 1;
+    }
+
+    const rpmRatio = this.getRpmRatio();
+    const torque = this.getTorqueFactor(rpmRatio);
+    const gearFactor = this.gear > 0 ? this.getGearFactor() : DRIVETRAIN.GEAR_BASE;
+    const engineAccel = spec.accelMs2 * torque * gearFactor;
 
     if (input.throttle > 0) {
       if (this.speed >= 0) {
         this.speed = Math.min(
-          this.speed + spec.accelMs2 * input.throttle * dt,
+          this.speed + engineAccel * input.throttle * dt,
           spec.topSpeedMs,
         );
       } else {
@@ -102,6 +133,11 @@ export class PlayerVehicle {
       if (this.speed > 0) this.speed = Math.max(this.speed - decel, 0);
       else this.speed = Math.min(this.speed + decel, 0);
     }
+
+    const forwardSpeed = Math.abs(this.speed);
+    this.updateTransmission(forwardSpeed, input);
+    const targetRpm = this.computeTargetRpm(forwardSpeed);
+    this.rpm += (targetRpm - this.rpm) * Math.min(1, dt * DRIVETRAIN.RPM_RESPONSE);
 
     const speedRatio = Math.min(Math.abs(this.speed) / spec.topSpeedMs, 1);
     const targetSteer =
@@ -140,6 +176,62 @@ export class PlayerVehicle {
     this.wheelRoll += (this.speed / WHEEL_RADIUS) * dt;
     for (const wheel of this.visuals.wheels) {
       wheel.rotation.set(this.wheelRoll, 0, Math.PI / 2);
+    }
+  }
+
+  private static buildGearMaxSpeeds(spec: VehicleSpec): number[] {
+    const speeds: number[] = [];
+    const first = DRIVETRAIN.FIRST_GEAR_REDLINE_RATIO;
+    for (let gear = 1; gear <= spec.gears; gear += 1) {
+      const t = (gear - 1) / Math.max(1, spec.gears - 1);
+      speeds.push(spec.topSpeedMs * first * Math.pow(1 / first, t));
+    }
+    return speeds;
+  }
+
+  private getTorqueFactor(rpmRatio: number): number {
+    const r = Math.max(0, Math.min(1, rpmRatio));
+    return DRIVETRAIN.TORQUE_BASE + DRIVETRAIN.TORQUE_SWING * Math.sin(Math.PI * r);
+  }
+
+  private getGearFactor(): number {
+    return DRIVETRAIN.GEAR_BASE + (this.spec.gears - this.gear) * DRIVETRAIN.GEAR_STEP;
+  }
+
+  private computeTargetRpm(speedMs: number): number {
+    const spec = this.spec;
+    const range = spec.engineRedlineRpm - spec.engineIdleRpm;
+    if (this.gear === 0) {
+      const reverseRatio = Math.min(speedMs / PHYSICS.REVERSE_MAX_SPEED, 1);
+      return spec.engineIdleRpm + range * reverseRatio * DRIVETRAIN.REVERSE_RPM_RATIO;
+    }
+    const vMax = this.gearMaxSpeeds[this.gear - 1] ?? spec.topSpeedMs;
+    const speedRatio = Math.min(speedMs / vMax, 1);
+    return spec.engineIdleRpm + range * speedRatio;
+  }
+
+  private updateTransmission(speedMs: number, input: DriveInput): void {
+    if (this.gear === 0 || this.shiftTimer > 0) return;
+    const redline = this.spec.engineRedlineRpm;
+    const target = this.computeTargetRpm(speedMs);
+    if (
+      input.throttle > DRIVETRAIN.UPSHIFT_THROTTLE &&
+      target >= redline * DRIVETRAIN.UPSHIFT_RPM_RATIO &&
+      this.gear < this.spec.gears
+    ) {
+      this.gear += 1;
+      this.shiftTimer = DRIVETRAIN.SHIFT_TIME;
+      return;
+    }
+    if (
+      this.gear > 1 &&
+      target < redline * DRIVETRAIN.DOWNSHIFT_RPM_RATIO &&
+      (input.throttle > DRIVETRAIN.DOWNSHIFT_THROTTLE ||
+        input.brake > DRIVETRAIN.DOWNSHIFT_BRAKE) &&
+      speedMs <= this.gearMaxSpeeds[this.gear - 2] * DRIVETRAIN.DOWNSHIFT_SPEED_RATIO
+    ) {
+      this.gear -= 1;
+      this.shiftTimer = DRIVETRAIN.SHIFT_TIME;
     }
   }
 

@@ -97,6 +97,70 @@ test('hood camera tracks the player vehicle without lag', async ({ page }) => {
   expect(error).toBeLessThan(0.05);
 });
 
+test('traffic signals have poles connected to the ground', async ({ page }) => {
+  await boot(page);
+  const poles = await page.evaluate(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      city: {
+        group: {
+          traverse: (fn: (obj: {
+            name?: string;
+            isInstancedMesh?: boolean;
+            count?: number;
+            geometry?: {
+              computeBoundingBox?: () => void;
+              boundingBox?: { min: { y: number }; max: { y: number } };
+            };
+            instanceMatrix?: { array?: Float32Array };
+          }) => void) => void;
+        };
+      };
+    };
+    let count = 0;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    game.city.group.traverse((obj) => {
+      if (obj.name !== 'signal-poles' || !obj.isInstancedMesh || !obj.count) return;
+      count += obj.count;
+      obj.geometry?.computeBoundingBox?.();
+      const bb = obj.geometry?.boundingBox;
+      const y = obj.instanceMatrix?.array?.[13] ?? 0;
+      if (bb) {
+        minY = Math.min(minY, bb.min.y + y);
+        maxY = Math.max(maxY, bb.max.y + y);
+      }
+    });
+    return { count, minY, maxY };
+  });
+  expect(poles.count).toBeGreaterThan(0);
+  expect(poles.minY).toBeGreaterThanOrEqual(-0.05);
+  expect(poles.maxY).toBeGreaterThan(4.5);
+});
+
+test('automatic transmission shifts at redline and HUD shows tachometer', async ({ page }) => {
+  await boot(page);
+  await page.getByRole('button', { name: '自由漫游' }).click();
+  await expect(page.locator('#hud')).toBeVisible();
+  await expect(page.locator('#hud-rpm')).toBeVisible();
+  await expect(page.locator('#hud-gear')).toHaveText('D1');
+
+  await page.keyboard.down('w');
+  await page.waitForTimeout(1500);
+  await page.keyboard.up('w');
+
+  const state = await page.evaluate(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      player: { gear: number; rpm: number };
+    };
+    return { gear: game.player.gear, rpm: game.player.rpm };
+  });
+  expect(state.gear).toBeGreaterThan(1);
+  expect(state.rpm).toBeGreaterThan(0);
+  await expect(page.locator('#hud-gear')).toHaveText(`D${state.gear}`);
+  const rpmText = await page.locator('#hud-rpm').textContent();
+  expect(Number(rpmText)).toBeGreaterThan(0);
+});
+
 test('distant city chunks are culled by render distance', async ({ page }) => {
   await boot(page);
   await page.locator('.menu-panel .menu-btn').first().click();

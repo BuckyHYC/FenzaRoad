@@ -66,11 +66,11 @@ export class AudioSystem {
     void this.ctx?.resume();
   }
 
-  updateEngine(speedRatio: number, throttle: number): void {
+  updateEngine(rpmRatio: number, _rpm: number, throttle: number): void {
     if (!this.ctx || !this.engineOsc || !this.engineOsc2 || !this.engineGain) return;
     const freq =
       AUDIO_CONFIG.ENGINE_BASE_FREQ +
-      speedRatio * AUDIO_CONFIG.ENGINE_MAX_ADD +
+      rpmRatio * AUDIO_CONFIG.ENGINE_MAX_ADD +
       throttle * 26;
     this.engineOsc.frequency.setTargetAtTime(freq, this.ctx.currentTime, 0.05);
     this.engineOsc2.frequency.setTargetAtTime(freq / 2, this.ctx.currentTime, 0.05);
@@ -78,7 +78,7 @@ export class AudioSystem {
       ? 0
       : AUDIO_CONFIG.ENGINE_BASE_GAIN +
         throttle * AUDIO_CONFIG.ENGINE_THROTTLE_GAIN +
-        speedRatio * 0.01;
+        rpmRatio * 0.01;
     this.engineGain.gain.setTargetAtTime(gain, this.ctx.currentTime, 0.06);
   }
 

@@ -13,6 +13,9 @@ export interface VehicleSpec {
   color: string;
   colorOptions: string[];
   topSpeedMs: number;
+  gears: number;
+  engineRedlineRpm: number;
+  engineIdleRpm: number;
   accelMs2: number;
   brakeMs2: number;
   steerRate: number;
@@ -59,6 +62,9 @@ export interface PlayerState {
   z: number;
   heading: number;
   speedKmh: number;
+  rpm: number;
+  rpmRatio: number;
+  gear: number;
   lap: number;
   position: number;
   raceTimeMs: number;

@@ -29,6 +29,23 @@ export const PHYSICS = {
   CAR_RADIUS_PADDING: 0.12,
 } as const;
 
+export const DRIVETRAIN = {
+  FIRST_GEAR_REDLINE_RATIO: 0.14,
+  UPSHIFT_RPM_RATIO: 0.985,
+  UPSHIFT_THROTTLE: 0.15,
+  DOWNSHIFT_RPM_RATIO: 0.42,
+  DOWNSHIFT_THROTTLE: 0.2,
+  DOWNSHIFT_BRAKE: 0.3,
+  DOWNSHIFT_SPEED_RATIO: 0.95,
+  SHIFT_TIME: 0.18,
+  RPM_RESPONSE: 8,
+  REVERSE_RPM_RATIO: 0.6,
+  TORQUE_BASE: 0.86,
+  TORQUE_SWING: 0.2,
+  GEAR_BASE: 1.0,
+  GEAR_STEP: 0.24,
+} as const;
+
 export const DENSITY_CONFIG: Record<
   Density,
   {
@@ -135,8 +152,8 @@ export const DENSITY_VALUES = {
 } as const;
 
 export const AUDIO_CONFIG = {
-  ENGINE_BASE_FREQ: 52,
-  ENGINE_MAX_ADD: 210,
+  ENGINE_BASE_FREQ: 58,
+  ENGINE_MAX_ADD: 232,
   ENGINE_BASE_GAIN: 0.012,
   ENGINE_THROTTLE_GAIN: 0.03,
 } as const;
@@ -159,6 +176,9 @@ export const VEHICLES: VehicleSpec[] = [
     color: '#cc3333',
     colorOptions: ['#cc3333', '#3568c9', '#e8e8e8', '#333333'],
     topSpeedMs: 46,
+    gears: 6,
+    engineRedlineRpm: 7000,
+    engineIdleRpm: 850,
     accelMs2: 9.5,
     brakeMs2: 20,
     steerRate: 3.4,
@@ -174,6 +194,9 @@ export const VEHICLES: VehicleSpec[] = [
     color: '#e0562c',
     colorOptions: ['#e0562c', '#f2c94c', '#7a2fd0', '#222222'],
     topSpeedMs: 62,
+    gears: 7,
+    engineRedlineRpm: 8500,
+    engineIdleRpm: 950,
     accelMs2: 13.5,
     brakeMs2: 24,
     steerRate: 3.9,
@@ -189,6 +212,9 @@ export const VEHICLES: VehicleSpec[] = [
     color: '#2f6b3f',
     colorOptions: ['#2f6b3f', '#c98a3d', '#e8e8e8', '#1f3a4d'],
     topSpeedMs: 42,
+    gears: 6,
+    engineRedlineRpm: 6200,
+    engineIdleRpm: 800,
     accelMs2: 8.0,
     brakeMs2: 18,
     steerRate: 3.1,
@@ -204,6 +230,9 @@ export const VEHICLES: VehicleSpec[] = [
     color: '#8a6f3f',
     colorOptions: ['#8a6f3f', '#4f6d8c', '#b7b7b7', '#5a3826'],
     topSpeedMs: 38,
+    gears: 6,
+    engineRedlineRpm: 5800,
+    engineIdleRpm: 750,
     accelMs2: 6.8,
     brakeMs2: 16,
     steerRate: 2.9,
@@ -219,6 +248,9 @@ export const VEHICLES: VehicleSpec[] = [
     color: '#e6b800',
     colorOptions: ['#e6b800', '#f5f0dc', '#2f6f4f'],
     topSpeedMs: 41,
+    gears: 5,
+    engineRedlineRpm: 6800,
+    engineIdleRpm: 850,
     accelMs2: 7.8,
     brakeMs2: 19,
     steerRate: 3.2,
@@ -234,6 +266,9 @@ export const VEHICLES: VehicleSpec[] = [
     color: '#f2f2f2',
     colorOptions: ['#f2f2f2', '#2b2b3a', '#31506b'],
     topSpeedMs: 56,
+    gears: 7,
+    engineRedlineRpm: 8000,
+    engineIdleRpm: 900,
     accelMs2: 11.5,
     brakeMs2: 22,
     steerRate: 3.7,
