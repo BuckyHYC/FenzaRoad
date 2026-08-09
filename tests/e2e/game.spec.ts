@@ -184,6 +184,55 @@ test('traffic signals have poles and three lamp heads', async ({ page }) => {
   expect(result.lampCounts['signal-green-lamps']).toBeGreaterThan(0);
 });
 
+test('npc vehicles turn smoothly through intersections', async ({ page }) => {
+  await boot(page);
+  await page.getByRole('button', { name: '自由漫游' }).click();
+  await page.waitForFunction(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      traffic: { npcs: unknown[] };
+    };
+    return game.traffic.npcs.length > 0;
+  }, { timeout: 15000 });
+  const result = await page.evaluate(async () => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      traffic: {
+        npcs: Array<{
+          t: number;
+          speed: number;
+          turnProgress: number;
+          vehicle: { heading: number; x: number; z: number };
+        }>;
+        advanceThroughIntersection: (npc: unknown) => void;
+      };
+    };
+    const npc = game.traffic.npcs[0];
+    npc.speed = 10;
+    npc.t = 1;
+    game.traffic.advanceThroughIntersection(npc);
+    const turning = npc.turnProgress >= 0;
+    const before = {
+      heading: npc.vehicle.heading,
+      x: npc.vehicle.x,
+      z: npc.vehicle.z,
+    };
+    await new Promise((resolve) => setTimeout(resolve, 260));
+    const after = {
+      heading: npc.vehicle.heading,
+      x: npc.vehicle.x,
+      z: npc.vehicle.z,
+    };
+    return {
+      turning,
+      headingDelta: Math.abs(after.heading - before.heading),
+      moved: Math.hypot(after.x - before.x, after.z - before.z),
+    };
+  });
+  expect(result.turning).toBe(true);
+  expect(result.headingDelta).toBeLessThan(1.2);
+  expect(result.moved).toBeGreaterThan(0.5);
+  expect(result.moved).toBeLessThan(20);
+});
+
 test('automatic transmission shifts and HUD shows tachometer', async ({ page }) => {
   await boot(page);
   await page.getByRole('button', { name: '自由漫游' }).click();
@@ -254,6 +303,7 @@ test('torque curve and gear ratios shape acceleration', async ({ page }) => {
   });
   expect(accel.peak).toBeGreaterThan(accel.topGear);
   expect(accel.peak).toBeGreaterThan(accel.redline);
+  expect(accel.peak).toBeGreaterThan(11);
 });
 
 test('garage thumbnail, arrows and selection persist', async ({ page }) => {
@@ -263,11 +313,30 @@ test('garage thumbnail, arrows and selection persist', async ({ page }) => {
   await expect(thumb).toBeVisible();
   const firstSrc = await thumb.getAttribute('src');
   expect(firstSrc).toMatch(/^data:image\/png/);
+  const wrap = page.locator('.garage-thumb-wrap');
+  const sizeBefore = await wrap.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return { width: r.width, height: r.height };
+  });
 
   await page.getByRole('button', { name: '下一辆' }).click();
   await expect(page.locator('#garage-name')).toHaveText('运动轿跑');
   const secondSrc = await thumb.getAttribute('src');
   expect(secondSrc).not.toBe(firstSrc);
+  await expect(wrap).toHaveClass(/garage-switching-right/);
+  await page.waitForTimeout(350);
+  await expect(wrap).not.toHaveClass(/garage-switching/);
+  const sizeAfter = await wrap.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return { width: r.width, height: r.height };
+  });
+  expect(sizeAfter.width).toBeCloseTo(sizeBefore.width, 1);
+  expect(sizeAfter.height).toBeCloseTo(sizeBefore.height, 1);
+
+  await page.locator('.garage-arrow-left').click();
+  await expect(wrap).toHaveClass(/garage-switching-left/);
+  await page.locator('.garage-arrow-right').click();
+  expect(await thumb.getAttribute('src')).toBe(secondSrc);
 
   await page.getByRole('button', { name: '使用此车辆' }).click();
   await expect(page.getByText('城市驾驶模拟')).toBeVisible();
@@ -283,11 +352,57 @@ test('garage thumbnail, arrows and selection persist', async ({ page }) => {
   expect(vehicleId).toBe('coupe');
 });
 
+test('river has a sunken bed with animated water', async ({ page }) => {
+  await boot(page);
+  const result = await page.evaluate(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      city: {
+        group: {
+          traverse: (fn: (obj: {
+            name?: string;
+            position?: { y: number };
+            material?: { opacity: number };
+          }) => void) => void;
+        };
+        updateWater: (timeSec: number) => void;
+      };
+    };
+    let riverY = 0;
+    let bedY = 0;
+    let opacityA = 0;
+    let opacityB = 0;
+    game.city.group.traverse((obj) => {
+      if (obj.name === 'river') {
+        riverY = obj.position?.y ?? 0;
+        opacityA = obj.material?.opacity ?? 0;
+      }
+      if (obj.name === 'riverbed') bedY = obj.position?.y ?? 0;
+    });
+    game.city.updateWater(0);
+    game.city.group.traverse((obj) => {
+      if (obj.name === 'river') opacityB = obj.material?.opacity ?? 0;
+    });
+    return { riverY, bedY, opacityA, opacityB };
+  });
+  expect(result.bedY).toBeLessThan(-0.2);
+  expect(result.riverY).toBeGreaterThan(result.bedY);
+  expect(result.opacityB).not.toBe(result.opacityA);
+});
+
 test('settings screen and mobile camera button work', async ({ page }) => {
   await boot(page);
   await page.getByRole('button', { name: '设置' }).click();
   await expect(page.locator('.settings-overlay')).toContainText('声音');
   await expect(page.locator('.settings-overlay')).toContainText('操控方式');
+  await expect(page.locator('#settings-bgm-volume')).toBeVisible();
+  await page.locator('#settings-bgm-volume').fill('0.35');
+  const bgmVolume = await page.evaluate(() => {
+    const state = (window as unknown as { __GAME_STATE__?: unknown }).__GAME_STATE__ as unknown as {
+      settings: { bgmVolume: number };
+    };
+    return state.settings.bgmVolume;
+  });
+  expect(bgmVolume).toBeCloseTo(0.35, 2);
   await page.locator('.settings-overlay').getByRole('button', { name: '手机操控' }).click();
   await expect(page.locator('.settings-overlay [data-control-mode="mobile"]')).toHaveClass(/active/);
   await page.locator('.settings-overlay').getByRole('button', { name: '返回主菜单' }).click();

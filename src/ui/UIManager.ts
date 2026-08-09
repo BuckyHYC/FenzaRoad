@@ -72,6 +72,7 @@ export class UIManager {
   private readonly touchControls: TouchControls;
   private selectedGarageVehicleId = gameState.saved.selectedVehicleId;
   private selectedGarageColor = gameState.saved.selectedColor;
+  private garageSlideDir: 1 | -1 = 1;
   private countdownTimer: number | null = null;
   private collisionFlashTimer: number | null = null;
 
@@ -273,17 +274,29 @@ export class UIManager {
     this.minimap.render(gameState.player.x, gameState.player.z, gameState.player.heading, dots);
   }
 
-  setGaragePreview(vehicleId: string, color: string): void {
+  setGaragePreview(vehicleId: string, color: string, direction?: 1 | -1): void {
+    const prevIndex = VEHICLES.findIndex((v) => v.id === this.selectedGarageVehicleId);
+    const nextIndex = VEHICLES.findIndex((v) => v.id === vehicleId);
+    const dir =
+      direction ??
+      (nextIndex === prevIndex
+        ? this.garageSlideDir
+        : nextIndex > prevIndex
+          ? 1
+          : -1);
+    this.garageSlideDir = dir;
     this.selectedGarageVehicleId = vehicleId;
     this.selectedGarageColor = color;
     this.game.showGarageVehicle(vehicleId, color);
     this.refreshGaragePreview();
     const wrap = this.garageThumb.parentElement;
-    if (wrap) {
-      wrap.classList.remove('garage-switching');
+    if (wrap instanceof HTMLElement) {
+      wrap.classList.remove('garage-switching-left', 'garage-switching-right');
       void wrap.offsetWidth;
-      wrap.classList.add('garage-switching');
-      window.setTimeout(() => wrap.classList.remove('garage-switching'), 260);
+      wrap.classList.add(dir > 0 ? 'garage-switching-right' : 'garage-switching-left');
+      window.setTimeout(() => {
+        wrap.classList.remove('garage-switching-left', 'garage-switching-right');
+      }, 320);
     }
   }
 
@@ -297,7 +310,7 @@ export class UIManager {
     const color = next.colorOptions.includes(this.selectedGarageColor)
       ? this.selectedGarageColor
       : next.color;
-    this.setGaragePreview(next.id, color);
+    this.setGaragePreview(next.id, color, direction > 0 ? 1 : -1);
   }
 
   setDifficulty(difficulty: Difficulty): void {
@@ -366,6 +379,36 @@ export class UIManager {
     soundButton.id = 'settings-mute';
     soundRow.appendChild(soundButton);
     panel.appendChild(soundRow);
+
+    const bgmRow = el('div', 'settings-row settings-row-column') as HTMLDivElement;
+    bgmRow.appendChild(el('span', 'settings-label', '背景音乐'));
+    const bgmSlider = el('input', 'settings-slider') as HTMLInputElement;
+    bgmSlider.type = 'range';
+    bgmSlider.min = '0';
+    bgmSlider.max = '1';
+    bgmSlider.step = '0.05';
+    bgmSlider.value = String(gameState.settings.bgmVolume);
+    bgmSlider.id = 'settings-bgm-volume';
+    bgmSlider.addEventListener('input', () => {
+      this.game.setBgmVolume(Number(bgmSlider.value));
+    });
+    bgmRow.appendChild(bgmSlider);
+    panel.appendChild(bgmRow);
+
+    const sfxRow = el('div', 'settings-row settings-row-column') as HTMLDivElement;
+    sfxRow.appendChild(el('span', 'settings-label', '游戏音量'));
+    const sfxSlider = el('input', 'settings-slider') as HTMLInputElement;
+    sfxSlider.type = 'range';
+    sfxSlider.min = '0';
+    sfxSlider.max = '1';
+    sfxSlider.step = '0.05';
+    sfxSlider.value = String(gameState.settings.sfxVolume);
+    sfxSlider.id = 'settings-sfx-volume';
+    sfxSlider.addEventListener('input', () => {
+      this.game.setSfxVolume(Number(sfxSlider.value));
+    });
+    sfxRow.appendChild(sfxSlider);
+    panel.appendChild(sfxRow);
 
     const controlRow = el('div', 'settings-row settings-row-column') as HTMLDivElement;
     controlRow.appendChild(el('span', 'settings-label', '操控方式'));
@@ -625,7 +668,7 @@ export class UIManager {
       steer: spec.steerRate,
       brake: spec.brakeMs2,
     };
-    const maxes: Record<string, number> = { speed: 62, accel: 13.5, steer: 3.9, brake: 24 };
+    const maxes: Record<string, number> = { speed: 62, accel: 18, steer: 3.9, brake: 24 };
     for (const [key, fill] of this.statBars) {
       fill.style.width = `${Math.round((stats[key] / maxes[key]) * 100)}%`;
     }

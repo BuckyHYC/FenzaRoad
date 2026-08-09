@@ -9,6 +9,8 @@ export class AudioSystem {
   private engineGain: GainNode | null = null;
   private noiseBuffer: AudioBuffer | null = null;
   private muted = false;
+  private bgmVolume = 1;
+  private sfxVolume = 1;
 
   init(): void {
     if (this.ctx) return;
@@ -54,9 +56,20 @@ export class AudioSystem {
   setMuted(muted: boolean): void {
     this.muted = muted;
     this.music?.setMuted(muted);
+    this.applyEngineGain();
+  }
+
+  setVolumes(bgmVolume: number, sfxVolume: number): void {
+    this.bgmVolume = Math.max(0, Math.min(1, bgmVolume));
+    this.sfxVolume = Math.max(0, Math.min(1, sfxVolume));
+    this.music?.setVolume(this.bgmVolume);
+    this.applyEngineGain();
+  }
+
+  private applyEngineGain(): void {
     if (this.ctx && this.engineGain) {
       this.engineGain.gain.setTargetAtTime(
-        muted ? 0 : AUDIO_CONFIG.ENGINE_BASE_GAIN,
+        this.muted ? 0 : AUDIO_CONFIG.ENGINE_BASE_GAIN * this.sfxVolume,
         this.ctx.currentTime,
         0.08,
       );
@@ -89,9 +102,10 @@ export class AudioSystem {
     this.engineOsc2.frequency.setTargetAtTime(freq / 2, this.ctx.currentTime, 0.05);
     const gain = this.muted
       ? 0
-      : AUDIO_CONFIG.ENGINE_BASE_GAIN +
-        throttle * AUDIO_CONFIG.ENGINE_THROTTLE_GAIN +
-        rpmRatio * 0.01;
+      : (AUDIO_CONFIG.ENGINE_BASE_GAIN +
+          throttle * AUDIO_CONFIG.ENGINE_THROTTLE_GAIN +
+          rpmRatio * 0.01) *
+        this.sfxVolume;
     this.engineGain.gain.setTargetAtTime(gain, this.ctx.currentTime, 0.06);
   }
 
@@ -104,7 +118,7 @@ export class AudioSystem {
     filter.frequency.value = 220;
     filter.Q.value = 0.8;
     const gain = this.ctx.createGain();
-    const peak = Math.min(0.5, 0.12 + intensity * 0.25);
+    const peak = Math.min(0.5, (0.12 + intensity * 0.25) * this.sfxVolume);
     gain.gain.setValueAtTime(peak, this.ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.22);
     source.connect(filter);

@@ -17,11 +17,12 @@ export class MusicSystem {
   private step = 0;
   private nextStepTime = 0;
   private muted = false;
+  private volume = 1;
 
   constructor(ctx: AudioContext) {
     this.ctx = ctx;
     this.master = ctx.createGain();
-    this.master.gain.value = 0.11;
+    this.master.gain.value = 0;
     this.master.connect(ctx.destination);
   }
 
@@ -29,13 +30,23 @@ export class MusicSystem {
     if (this.timer !== null) return;
     this.nextStepTime = this.ctx.currentTime + 0.08;
     this.step = 0;
+    this.apply();
     this.timer = window.setInterval(() => this.schedule(), 90);
   }
 
   setMuted(muted: boolean): void {
     this.muted = muted;
+    this.apply();
+  }
+
+  setVolume(volume: number): void {
+    this.volume = Math.max(0, Math.min(1, volume));
+    this.apply();
+  }
+
+  private apply(): void {
     this.master.gain.setTargetAtTime(
-      muted ? 0 : 0.11,
+      this.muted ? 0 : 0.11 * this.volume,
       this.ctx.currentTime,
       0.08,
     );

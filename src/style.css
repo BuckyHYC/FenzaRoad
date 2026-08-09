@@ -208,6 +208,12 @@ canvas {
   color: var(--text-dim);
 }
 
+.settings-slider {
+  width: 100%;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
 .seg-btn-wide {
   width: 128px;
 }
@@ -370,14 +376,32 @@ canvas {
   border: 1px solid var(--panel-border);
   border-radius: 7px;
   background: linear-gradient(160deg, #141c26, #0b0f14);
-  transition:
-    opacity 0.18s ease,
-    transform 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.2);
 }
 
-.garage-thumb-wrap.garage-switching {
-  opacity: 0.35;
-  transform: scale(0.96) translateX(10px);
+.garage-thumb-wrap.garage-switching-left {
+  animation: garage-slide-in-left 0.3s cubic-bezier(0.22, 0.9, 0.3, 1);
+}
+
+.garage-thumb-wrap.garage-switching-right {
+  animation: garage-slide-in-right 0.3s cubic-bezier(0.22, 0.9, 0.3, 1);
+}
+
+@keyframes garage-slide-in-left {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes garage-slide-in-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
 }
 
 .garage-stage {

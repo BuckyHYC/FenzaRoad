@@ -130,6 +130,11 @@ export class Game {
     this.input = new InputSystem();
     this.audio = new AudioSystem();
     this.audio.init();
+    this.audio.setMuted(gameState.settings.muted);
+    this.audio.setVolumes(
+      gameState.settings.bgmVolume,
+      gameState.settings.sfxVolume,
+    );
     this.player = this.createPlayer(gameState.player.vehicleId, gameState.player.color);
     this.player.visuals.group.visible = false;
     this.showcase = this.createPlayer(gameState.player.vehicleId, gameState.player.color);
@@ -271,15 +276,18 @@ export class Game {
     }
 
     const group = this.showcase.visuals.group;
+    const prevScale = group.scale.x;
     this.scene.remove(group);
     this.thumbScene.add(group);
     group.position.set(0, 0, 0);
     group.rotation.set(0, 0.55, 0);
+    group.scale.setScalar(1);
     group.updateMatrixWorld(true);
     try {
       this.thumbRenderer.render(this.thumbScene, this.thumbCamera);
       return this.thumbRenderer.domElement.toDataURL('image/png');
     } finally {
+      group.scale.setScalar(prevScale);
       this.thumbScene.remove(group);
       this.scene.add(group);
       this.placeShowcase();
@@ -389,6 +397,24 @@ export class Game {
     eventBus.emit(Events.AUDIO_MUTE, { muted: gameState.settings.muted });
   }
 
+  setBgmVolume(value: number): void {
+    gameState.settings.bgmVolume = Math.max(0, Math.min(1, value));
+    gameState.save();
+    this.audio.setVolumes(
+      gameState.settings.bgmVolume,
+      gameState.settings.sfxVolume,
+    );
+  }
+
+  setSfxVolume(value: number): void {
+    gameState.settings.sfxVolume = Math.max(0, Math.min(1, value));
+    gameState.save();
+    this.audio.setVolumes(
+      gameState.settings.bgmVolume,
+      gameState.settings.sfxVolume,
+    );
+  }
+
   resetVehicle(): void {
     if (gameState.mode === 'freeRoam') {
       const center = (WORLD.GRID_SIZE / 2) * WORLD.BLOCK_LENGTH;
@@ -428,6 +454,7 @@ export class Game {
     this.input.update();
     this.handleDiscreteInput();
     this.city.updateSignals(this.timeSec);
+    this.city.updateWater(this.timeSec);
     if (gameState.mode === 'menu' || gameState.mode === 'garage') {
       this.city.updateChunks(this.showcase.x, this.showcase.z);
     } else {

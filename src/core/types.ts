@@ -55,6 +55,8 @@ export interface SavedProgress {
   selectedColor: string;
   bestLaps: Record<string, number>;
   muted: boolean;
+  bgmVolume: number;
+  sfxVolume: number;
   controlMode: ControlMode;
   density: Density;
 }

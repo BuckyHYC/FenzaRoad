@@ -34,6 +34,7 @@ export interface City {
   setRacePropsVisible(visible: boolean): void;
   lightGreen(axis: 'x' | 'z', timeSec: number, nodeIndex: number): boolean;
   updateSignals(timeSec: number): void;
+  updateWater(timeSec: number): void;
   updateChunks(px: number, pz: number): void;
 }
 
@@ -225,8 +226,11 @@ export function buildCity(scene: THREE.Scene): City {
   const waterMaterial = new THREE.MeshStandardMaterial({
     color: 0x2f7fa8,
     roughness: 0.25,
+    metalness: 0.05,
     transparent: true,
     opacity: 0.92,
+    emissive: 0x0b2c44,
+    emissiveIntensity: 0.4,
   });
   const bankMaterial = new THREE.MeshStandardMaterial({
     color: 0x9a7a4f,
@@ -260,16 +264,43 @@ export function buildCity(scene: THREE.Scene): City {
 
   const riverWidth = 22;
   const riverCenterX = -25;
+  const riverBedWidth = riverWidth - 6;
+  const waterBaseY = -0.14;
   const river = new THREE.Mesh(
-    new THREE.PlaneGeometry(1020, riverWidth),
+    new THREE.PlaneGeometry(1020, riverBedWidth),
     waterMaterial,
   );
   river.rotation.x = -Math.PI / 2;
-  river.position.set(riverCenterX, 0.035, 460);
+  river.position.set(riverCenterX, waterBaseY, 460);
   river.name = 'river';
   river.receiveShadow = true;
   group.add(river);
+
+  const riverbed = new THREE.Mesh(
+    new THREE.BoxGeometry(1020, 0.5, riverBedWidth),
+    new THREE.MeshStandardMaterial({
+      color: 0x6d5f47,
+      roughness: 1,
+    }),
+  );
+  riverbed.position.set(riverCenterX, -0.62, 460);
+  riverbed.name = 'riverbed';
+  riverbed.receiveShadow = true;
+  group.add(riverbed);
   for (const side of [-1, 1]) {
+    const slope = new THREE.Mesh(
+      new THREE.BoxGeometry(1020, 0.09, 3.4),
+      bankMaterial,
+    );
+    slope.position.set(
+      riverCenterX,
+      -0.19,
+      460 + side * (riverBedWidth / 2 + 1.7),
+    );
+    slope.rotation.x = side * -0.11;
+    slope.name = 'river-bank';
+    slope.receiveShadow = true;
+    group.add(slope);
     const bank = new THREE.Mesh(
       new THREE.BoxGeometry(1020, 0.08, 3.2),
       bankMaterial,
@@ -1025,6 +1056,11 @@ export function buildCity(scene: THREE.Scene): City {
     }
   };
 
+  const updateWater = (timeSec: number): void => {
+    river.position.y = waterBaseY + Math.sin(timeSec * 0.9) * 0.025;
+    waterMaterial.opacity = 0.84 + Math.sin(timeSec * 1.4) * 0.06;
+  };
+
   const raceProps = new THREE.Group();
   raceProps.name = 'race-props';
 
@@ -1269,6 +1305,7 @@ export function buildCity(scene: THREE.Scene): City {
     setRacePropsVisible,
     lightGreen: lightGreenFor,
     updateSignals,
+    updateWater,
     updateChunks,
   };
 

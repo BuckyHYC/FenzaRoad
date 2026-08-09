@@ -19,9 +19,17 @@ function emptySaved(): SavedProgress {
     selectedColor: VEHICLES[0].color,
     bestLaps: {},
     muted: false,
+    bgmVolume: 0.7,
+    sfxVolume: 0.8,
     controlMode: touchDevice ? 'mobile' : 'desktop',
     density: 'low',
   };
+}
+
+function clampVolume(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.max(0, Math.min(1, value))
+    : fallback;
 }
 
 function loadSaved(): SavedProgress {
@@ -49,6 +57,8 @@ function loadSaved(): SavedProgress {
       parsed.density === 'low' || parsed.density === 'medium' || parsed.density === 'high'
         ? parsed.density
         : base.density;
+    const bgmVolume = clampVolume(parsed.bgmVolume, base.bgmVolume);
+    const sfxVolume = clampVolume(parsed.sfxVolume, base.sfxVolume);
     return {
       selectedVehicleId: vehicleId,
       selectedColor: color,
@@ -57,6 +67,8 @@ function loadSaved(): SavedProgress {
           ? parsed.bestLaps
           : {},
       muted: parsed.muted === true,
+      bgmVolume,
+      sfxVolume,
       controlMode,
       density,
     };
@@ -91,12 +103,20 @@ class GameState {
     resultPosition: 0,
     bestLapMs: 0,
   };
-  settings = { muted: false, controlMode: 'desktop' as ControlMode, density: 'low' as Density };
+  settings = {
+    muted: false,
+    bgmVolume: 0.7,
+    sfxVolume: 0.8,
+    controlMode: 'desktop' as ControlMode,
+    density: 'low' as Density,
+  };
   saved: SavedProgress;
 
   constructor() {
     this.saved = loadSaved();
     this.settings.muted = this.saved.muted;
+    this.settings.bgmVolume = this.saved.bgmVolume;
+    this.settings.sfxVolume = this.saved.sfxVolume;
     this.settings.controlMode = this.saved.controlMode;
     this.settings.density = this.saved.density;
     this.player.vehicleId = this.saved.selectedVehicleId;
@@ -131,6 +151,8 @@ class GameState {
     this.saved.selectedVehicleId = this.player.vehicleId;
     this.saved.selectedColor = this.player.color;
     this.saved.muted = this.settings.muted;
+    this.saved.bgmVolume = this.settings.bgmVolume;
+    this.saved.sfxVolume = this.settings.sfxVolume;
     this.saved.controlMode = this.settings.controlMode;
     this.saved.density = this.settings.density;
     try {

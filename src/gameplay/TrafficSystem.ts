@@ -14,6 +14,15 @@ interface Npc {
   speed: number;
   desiredSpeed: number;
   radius: number;
+  turnProgress: number;
+  turnDuration: number;
+  turnStartX: number;
+  turnStartZ: number;
+  turnStartHeading: number;
+  turnEndHeading: number;
+  nextEdgeId: number;
+  nextToNode: number;
+  nextLaneOffset: number;
 }
 
 interface Outgoing {
@@ -109,6 +118,11 @@ export class TrafficSystem {
   }
 
   private updateNpc(npc: Npc, dt: number, timeSec: number): void {
+    if (npc.turnProgress >= 0) {
+      this.updateTurning(npc, dt);
+      npc.vehicle.rollWheels(dt);
+      return;
+    }
     const edge = this.city.edges[npc.edgeId];
     const a = this.city.intersections[npc.fromNode];
     const b = this.city.intersections[npc.toNode];
@@ -153,6 +167,11 @@ export class TrafficSystem {
     npc.t += (npc.speed * dt) / len;
     if (npc.t >= 1) {
       this.advanceThroughIntersection(npc);
+      if (npc.turnProgress >= 0) {
+        this.syncTurnStart(npc);
+        npc.vehicle.rollWheels(dt);
+        return;
+      }
     }
 
     const t = Math.min(npc.t, 1);
@@ -166,7 +185,8 @@ export class TrafficSystem {
   private advanceThroughIntersection(npc: Npc): void {
     const candidates = this.outgoingCandidates(npc.toNode, npc.edgeId, npc.fromNode);
     if (candidates.length === 0) {
-      npc.t = 0.9;
+      npc.t = 0.999;
+      npc.speed = 0;
       return;
     }
     const edge = this.city.edges[npc.edgeId];
@@ -179,11 +199,83 @@ export class TrafficSystem {
     );
     const pool = straight.length > 0 && Math.random() < 0.55 ? straight : candidates;
     const next = pool[Math.floor(Math.random() * pool.length)];
-    npc.t -= 1;
-    npc.edgeId = next.edgeId;
-    npc.fromNode = npc.toNode;
-    npc.toNode = next.toNode;
-    npc.laneOffset = Math.random() < 0.5 ? 2.75 : 5.75;
+    const nextEdge = this.city.edges[next.edgeId];
+    const nextA = this.city.intersections[npc.toNode];
+    const nextB = this.city.intersections[next.toNode];
+    const nextLen = nextEdge.length;
+    npc.turnDuration = 0.5 + Math.random() * 0.35;
+    npc.turnProgress = 0;
+    npc.turnStartHeading = Math.atan2(curX, curZ);
+    npc.turnEndHeading = Math.atan2(
+      (nextB.x - nextA.x) / nextLen,
+      (nextB.z - nextA.z) / nextLen,
+    );
+    npc.nextEdgeId = next.edgeId;
+    npc.nextToNode = next.toNode;
+    npc.nextLaneOffset = Math.random() < 0.5 ? 2.75 : 5.75;
+    npc.speed = Math.max(4, Math.min(npc.speed, npc.desiredSpeed * 0.8));
+    this.syncTurnStart(npc);
+  }
+
+  private syncTurnStart(npc: Npc): void {
+    const edge = this.city.edges[npc.edgeId];
+    const a = this.city.intersections[npc.fromNode];
+    const b = this.city.intersections[npc.toNode];
+    const len = edge.length;
+    const ux = (b.x - a.x) / len;
+    const uz = (b.z - a.z) / len;
+    const rx = -uz;
+    const rz = ux;
+    const px = b.x + rx * npc.laneOffset;
+    const pz = b.z + rz * npc.laneOffset;
+    npc.turnStartX = px;
+    npc.turnStartZ = pz;
+    npc.vehicle.setKinematic(px, pz, npc.turnStartHeading, npc.speed);
+  }
+
+  private updateTurning(npc: Npc, dt: number): void {
+    npc.turnProgress = Math.min(1, npc.turnProgress + dt / npc.turnDuration);
+    npc.speed = Math.max(4, npc.speed - 4.5 * dt);
+    const edge = this.city.edges[npc.nextEdgeId];
+    const a = this.city.intersections[npc.toNode];
+    const b = this.city.intersections[npc.nextToNode];
+    const len = edge.length;
+    const ux = (b.x - a.x) / len;
+    const uz = (b.z - a.z) / len;
+    const rx = -uz;
+    const rz = ux;
+    const endX = a.x + rx * npc.nextLaneOffset;
+    const endZ = a.z + rz * npc.nextLaneOffset;
+    const s = npc.turnProgress;
+    const smooth = s * s * (3 - 2 * s);
+    const ix = npc.turnStartX + (endX - npc.turnStartX) * smooth;
+    const iz = npc.turnStartZ + (endZ - npc.turnStartZ) * smooth;
+    const midX = (npc.turnStartX + endX) / 2 - a.x;
+    const midZ = (npc.turnStartZ + endZ) / 2 - a.z;
+    const bulge = 1 - Math.cos(s * Math.PI);
+    const px = ix - midX * bulge * 0.4;
+    const pz = iz - midZ * bulge * 0.4;
+    const heading = this.lerpAngle(
+      npc.turnStartHeading,
+      npc.turnEndHeading,
+      smooth,
+    );
+    npc.vehicle.setKinematic(px, pz, heading, npc.speed);
+    if (npc.turnProgress >= 1) {
+      npc.edgeId = npc.nextEdgeId;
+      npc.fromNode = npc.toNode;
+      npc.toNode = npc.nextToNode;
+      npc.laneOffset = npc.nextLaneOffset;
+      npc.t = 0.02;
+      npc.turnProgress = -1;
+    }
+  }
+
+  private lerpAngle(from: number, to: number, t: number): number {
+    let delta = to - from;
+    while (delta > Math.PI) delta -= Math.PI * 2;
+    while (delta < -Math.PI) delta += Math.PI * 2;
+    return from + delta * t;
   }
 
   private outgoingCandidates(
@@ -261,6 +353,15 @@ export class TrafficSystem {
           TRAFFIC_CONFIG.BASE_SPEED +
           (Math.random() - 0.5) * TRAFFIC_CONFIG.SPEED_VARIATION,
         radius: spec.width / 2 + 0.15,
+        turnProgress: -1,
+        turnDuration: 0,
+        turnStartX: 0,
+        turnStartZ: 0,
+        turnStartHeading: 0,
+        turnEndHeading: 0,
+        nextEdgeId: 0,
+        nextToNode: 0,
+        nextLaneOffset: 0,
       });
       return;
     }
