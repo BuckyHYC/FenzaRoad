@@ -119,12 +119,26 @@ test('drift pose rotates the model without changing driving physics', async ({ p
     const driftDiff = Math.abs(player.visuals.group.rotation.y - player.heading);
     const driftRotDelta = player.visuals.group.rotation.y - player.heading;
     const headingAfter = player.heading;
-    return { names: [...names], pose, driftDiff, driftRotDelta, headingAfter };
+    player.update(0.06, { throttle: 0, brake: 0, steer: 1, handbrake: false });
+    const poseAfterRelease = player.getDriftPose();
+    player.update(0.06, { throttle: 0, brake: 0, steer: 0, handbrake: false });
+    const poseAfterStraight = player.getDriftPose();
+    return {
+      names: [...names],
+      pose,
+      driftDiff,
+      driftRotDelta,
+      headingAfter,
+      poseAfterRelease,
+      poseAfterStraight,
+    };
   });
   expect(result.pose).toBeGreaterThan(0.3);
-  expect(result.driftDiff).toBeGreaterThan(0.05);
-  expect(result.driftRotDelta).toBeGreaterThan(0.05);
+  expect(result.driftDiff).toBeGreaterThan(0.2);
+  expect(result.driftRotDelta).toBeGreaterThan(0.2);
   expect(result.headingAfter).toBeLessThan(0.3);
+  expect(result.poseAfterRelease).toBeGreaterThan(0.5);
+  expect(result.poseAfterStraight).toBeLessThan(result.poseAfterRelease);
   expect(result.names).toEqual(
     expect.arrayContaining([
       'river',
