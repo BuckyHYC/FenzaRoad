@@ -19,3 +19,11 @@
 - `pedestrians/robot.glb` - RobotExpressive (unused fallback)
 - These files are redistributed with this project for the game's runtime
   assets; see the three.js repository for each model's original terms.
+
+## Vehicle Runtime Notes
+
+The vehicle GLBs above are kept as drop-in replacement assets. The default
+runtime model is the procedural, part-based vehicle built in
+`VehicleFactory.ts`, which exposes BodyMain, Hood, four doors, TrunkLid,
+mirrors, lights, Windows and named wheels without extra redistribution
+restrictions.

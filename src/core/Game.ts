@@ -22,10 +22,7 @@ import { buildCity, type City } from '../level/CityBuilder';
 import { buildEndlessWorld } from '../level/EndlessWorld';
 import { createSkybox, createSkyTexture, getSunDirection } from '../level/Skybox';
 import { PlayerVehicle } from '../gameplay/PlayerVehicle';
-import {
-  attachExternalVehicleModel,
-  setVehicleEnvMap,
-} from '../gameplay/VehicleFactory';
+import { setVehicleEnvMap } from '../gameplay/VehicleFactory';
 import {
   buildAabbGrid,
   buildCircleGrid,
@@ -1201,11 +1198,6 @@ export class Game {
   ): PlayerVehicle {
     const spec = VEHICLES.find((v) => v.id === vehicleId) ?? VEHICLES[0];
     const vehicle = new PlayerVehicle(spec, color, this.scene, castShadows, highQuality);
-    void attachExternalVehicleModel(
-      vehicle.visuals,
-      `/models/vehicles/${spec.id}.glb`,
-      spec,
-    );
     return vehicle;
   }
 

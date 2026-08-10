@@ -821,6 +821,60 @@ test('quality presets switch renderer, shadows and composer', async ({ page }) =
   expect(low.composer).toBe(false);
 });
 
+test('player vehicle exposes the requested body parts', async ({ page }) => {
+  await boot(page);
+  const parts = await page.evaluate(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      player: {
+        visuals: {
+          bodyParts: Map<
+            string,
+            { visible: boolean; type: string; children: unknown[] }
+          >;
+        };
+      };
+    };
+    const map = game.player.visuals.bodyParts;
+    const required = [
+      'BodyMain',
+      'Hood',
+      'FrontDoor_L',
+      'FrontDoor_R',
+      'RearDoor_L',
+      'RearDoor_R',
+      'TrunkLid',
+      'Mirror_L',
+      'Mirror_R',
+      'Headlight_L',
+      'Headlight_R',
+      'Taillight_L',
+      'Taillight_R',
+      'Windows',
+      'Wheel_LF',
+      'Wheel_RF',
+      'Wheel_LR',
+      'Wheel_RR',
+    ];
+    return {
+      missing: required.filter((name) => !map.has(name)),
+      visible: required.filter((name) => map.get(name)?.visible === true),
+      windowsType: map.get('Windows')?.type,
+      wheelTypes: required
+        .filter((name) => name.startsWith('Wheel_'))
+        .map((name) => `${name}:${map.get(name)?.type}`),
+    };
+  });
+  expect(parts.missing).toEqual([]);
+  expect(parts.visible).toHaveLength(18);
+  expect(parts.windowsType).toBe('Mesh');
+  expect(parts.wheelTypes).toEqual([
+    'Wheel_LF:Group',
+    'Wheel_RF:Group',
+    'Wheel_LR:Group',
+    'Wheel_RR:Group',
+  ]);
+});
+
 test('multiplayer lobby, room creation, join and start work across two clients', async ({
   browser,
 }) => {
