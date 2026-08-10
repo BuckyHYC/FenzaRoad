@@ -1,6 +1,7 @@
 import { RACE_CONFIG, VEHICLES } from '../core/Constants';
 import { eventBus, Events } from '../core/EventBus';
 import { gameState } from '../core/GameState';
+import { TITLES, type TitleDefinition } from '../core/Titles';
 import type {
   ControlMode,
   Density,
@@ -92,6 +93,11 @@ export class UIManager {
   private garageSlideDir: 1 | -1 = 1;
   private countdownTimer: number | null = null;
   private collisionFlashTimer: number | null = null;
+  private readonly killValue: HTMLSpanElement;
+  private readonly killNext: HTMLSpanElement;
+  private readonly titleToast: HTMLDivElement;
+  private lastShownKills = gameState.pedestrianKills;
+  private titleToastTimer: number | null = null;
 
   constructor(game: Game, input: InputSystem, container: HTMLElement) {
     this.game = game;
@@ -125,6 +131,9 @@ export class UIManager {
     const speedElement = this.hudOverlay.querySelector('#hud-speed');
     const tachElement = this.hudOverlay.querySelector('#hud-rpm');
     const tachBarElement = this.hudOverlay.querySelector('#hud-rpm-bar');
+    const killElement = this.hudOverlay.querySelector('#hud-kills');
+    const killNextElement = this.hudOverlay.querySelector('#hud-next-title');
+    const titleToastElement = this.hudOverlay.querySelector('#hud-title-toast');
     const gearElement = this.hudOverlay.querySelector('#hud-gear');
     const lapElement = this.hudOverlay.querySelector('#hud-lap');
     const positionElement = this.hudOverlay.querySelector('#hud-position');
@@ -136,6 +145,9 @@ export class UIManager {
       !(speedElement instanceof HTMLSpanElement) ||
       !(tachElement instanceof HTMLSpanElement) ||
       !(tachBarElement instanceof HTMLDivElement) ||
+      !(killElement instanceof HTMLSpanElement) ||
+      !(killNextElement instanceof HTMLSpanElement) ||
+      !(titleToastElement instanceof HTMLDivElement) ||
       !(gearElement instanceof HTMLSpanElement) ||
       !(lapElement instanceof HTMLSpanElement) ||
       !(positionElement instanceof HTMLSpanElement) ||
@@ -149,6 +161,9 @@ export class UIManager {
     this.speedValue = speedElement;
     this.tachValue = tachElement;
     this.tachBar = tachBarElement;
+    this.killValue = killElement;
+    this.killNext = killNextElement;
+    this.titleToast = titleToastElement;
     this.gearValue = gearElement;
     this.lapValue = lapElement;
     this.positionValue = positionElement;
@@ -339,6 +354,7 @@ export class UIManager {
   showPause(): void {
     this.pauseOverlay.classList.remove('hidden');
     this.refreshQualityButtons();
+    this.refreshTitlePanel();
     this.syncPauseSliders();
     this.touchControls.hide();
   }
@@ -395,6 +411,18 @@ export class UIManager {
     this.tachValue.textContent = String(Math.round(gameState.player.rpm));
     this.tachBar.style.width = `${Math.round(gameState.player.rpmRatio * 100)}%`;
     this.gearValue.textContent = gameState.player.gear === 0 ? 'R' : `D${gameState.player.gear}`;
+    this.killValue.textContent = String(gameState.pedestrianKills);
+    const nextTitle = TITLES.find((title) => title.kills > gameState.pedestrianKills);
+    this.killNext.textContent = nextTitle
+      ? `下一称号：${nextTitle.name}（${nextTitle.kills - gameState.pedestrianKills}）`
+      : '全部称号已解锁';
+    if (gameState.pedestrianKills !== this.lastShownKills) {
+      const gained = TITLES.filter(
+        (title) => title.kills > this.lastShownKills && title.kills <= gameState.pedestrianKills,
+      );
+      if (gained.length > 0) this.showTitleToast(gained[gained.length - 1]);
+      this.lastShownKills = gameState.pedestrianKills;
+    }
     if (gameState.mode === 'race') {
       this.lapValue.textContent = `${Math.min(gameState.player.lap, gameState.race.totalLaps)}/${gameState.race.totalLaps}`;
       this.positionValue.textContent = `${gameState.player.position}/${gameState.race.totalRacers}`;
@@ -403,7 +431,13 @@ export class UIManager {
     }
 
     const dots = this.game.getMinimapDots();
-    this.minimap.render(gameState.player.x, gameState.player.z, gameState.player.heading, dots);
+    this.minimap.render(
+      gameState.player.x,
+      gameState.player.z,
+      gameState.player.heading,
+      dots,
+      this.game.getRaceRoute(),
+    );
   }
 
   setGaragePreview(vehicleId: string, color: string, direction?: 1 | -1): void {
@@ -696,9 +730,9 @@ export class UIManager {
     const qualitySeg = el('div', 'difficulty-row') as HTMLDivElement;
     const qualities: { id: QualityPreset; label: string }[] = [
       { id: 'auto', label: '自动' },
-      { id: 'high', label: '高' },
-      { id: 'medium', label: '中' },
       { id: 'low', label: '低' },
+      { id: 'medium', label: '中' },
+      { id: 'high', label: '高' },
     ];
     for (const item of qualities) {
       const node = button('seg-btn', item.label, () => {
@@ -900,6 +934,21 @@ export class UIManager {
     gaugeCluster.appendChild(tachBlock);
     hud.appendChild(gaugeCluster);
 
+    const killCounter = el('div', 'kill-counter') as HTMLDivElement;
+    killCounter.appendChild(el('span', 'kill-label', '行人击杀'));
+    const killValue = el('span', 'kill-value') as HTMLSpanElement;
+    killValue.id = 'hud-kills';
+    killValue.textContent = String(gameState.pedestrianKills);
+    killCounter.appendChild(killValue);
+    const killNext = el('span', 'kill-next') as HTMLSpanElement;
+    killNext.id = 'hud-next-title';
+    killCounter.appendChild(killNext);
+    hud.appendChild(killCounter);
+
+    const titleToast = el('div', 'title-toast hidden') as HTMLDivElement;
+    titleToast.id = 'hud-title-toast';
+    hud.appendChild(titleToast);
+
     const raceInfo = el('div', 'race-info hidden') as HTMLDivElement;
     raceInfo.id = 'hud-race';
     const lapRow = el('div', 'race-row') as HTMLDivElement;
@@ -954,12 +1003,12 @@ export class UIManager {
 
     const qualityRow = el('div', 'settings-row settings-row-column') as HTMLDivElement;
     qualityRow.appendChild(el('span', 'settings-label', '画质'));
-    const qualitySeg = el('div', 'difficulty-row') as HTMLDivElement;
+    const qualitySeg = el('div', 'difficulty-row quality-row') as HTMLDivElement;
     const qualities: { id: QualityPreset; label: string }[] = [
       { id: 'auto', label: '自动' },
-      { id: 'high', label: '高' },
-      { id: 'medium', label: '中' },
       { id: 'low', label: '低' },
+      { id: 'medium', label: '中' },
+      { id: 'high', label: '高' },
     ];
     for (const item of qualities) {
       const node = button('seg-btn', item.label, () => {
@@ -1002,9 +1051,26 @@ export class UIManager {
     sfxRow.appendChild(sfxSlider);
     panel.appendChild(sfxRow);
 
-    panel.appendChild(button('menu-btn menu-btn-primary', '继续', () => this.game.togglePause()));
-    panel.appendChild(button('menu-btn', '重新开始', () => this.game.restartCurrent()));
-    panel.appendChild(button('menu-btn menu-btn-secondary', '返回主菜单', () => this.game.showMenu()));
+    panel.appendChild(el('h2', 'settings-label title-section-label', '称号'));
+    const titleList = el('div', 'title-list') as HTMLDivElement;
+    for (const title of TITLES) {
+      const item = el('div', 'title-item locked') as HTMLDivElement;
+      item.dataset.title = title.id;
+      item.title = title.description;
+      const main = el('div', 'title-main') as HTMLDivElement;
+      const name = el('span', 'title-name', title.name) as HTMLSpanElement;
+      const cond = el('span', 'title-cond', '0/10') as HTMLSpanElement;
+      main.append(name, cond);
+      item.appendChild(main);
+      titleList.appendChild(item);
+    }
+    panel.appendChild(titleList);
+
+    const actions = el('div', 'pause-actions') as HTMLDivElement;
+    actions.appendChild(button('menu-btn menu-btn-primary', '继续', () => this.game.togglePause()));
+    actions.appendChild(button('menu-btn', '重新开始', () => this.game.restartCurrent()));
+    actions.appendChild(button('menu-btn menu-btn-secondary', '返回主菜单', () => this.game.showMenu()));
+    panel.appendChild(actions);
     overlay.appendChild(panel);
     return overlay;
   }
@@ -1023,6 +1089,34 @@ export class UIManager {
         node instanceof HTMLElement && node.dataset.quality === gameState.settings.quality;
       node.classList.toggle('active', active);
     }
+  }
+
+  private refreshTitlePanel(): void {
+    const kills = gameState.pedestrianKills;
+    for (const title of TITLES) {
+      const item = this.pauseOverlay.querySelector(`[data-title="${title.id}"]`);
+      if (!(item instanceof HTMLElement)) continue;
+      const unlocked = kills >= title.kills;
+      item.classList.toggle('locked', !unlocked);
+      item.classList.toggle('unlocked', unlocked);
+      const name = item.querySelector('.title-name');
+      if (name instanceof HTMLElement) name.style.color = title.color;
+      const cond = item.querySelector('.title-cond');
+      if (cond instanceof HTMLElement) {
+        cond.textContent = unlocked ? '已解锁' : `${kills}/${title.kills}`;
+      }
+    }
+  }
+
+  private showTitleToast(title: TitleDefinition): void {
+    this.titleToast.textContent = `获得称号：${title.name}`;
+    this.titleToast.style.color = title.color;
+    this.titleToast.style.borderColor = title.color;
+    this.titleToast.classList.remove('hidden');
+    if (this.titleToastTimer !== null) window.clearTimeout(this.titleToastTimer);
+    this.titleToastTimer = window.setTimeout(() => {
+      this.titleToast.classList.add('hidden');
+    }, 3000);
   }
 
   private buildResult(): HTMLDivElement {

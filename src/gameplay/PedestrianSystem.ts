@@ -41,21 +41,42 @@ interface Pedestrian {
 
 const SHIRT_COLORS = ['#e8503a', '#3a7bd5', '#e0a63a', '#4a9e5c', '#b3548f', '#f2f2f2'];
 const PANTS_COLORS = ['#2c3e50', '#4a3b32', '#20242b'];
+// 只收录拟真行人模型，每个行人生成时从列表中随机挑选一个。
 const PEDESTRIAN_MODEL_URLS = [
-  '/models/pedestrians/readyplayer.glb',
-  '/models/pedestrians/soldier.glb',
+  '/models/pedestrians/michelle.glb',
 ];
+const EXTERNAL_MODEL_HEIGHT = 1.7;
 
 interface PedestrianBones {
   leftLeg: THREE.Bone[];
   rightLeg: THREE.Bone[];
   leftArm: THREE.Bone[];
   rightArm: THREE.Bone[];
+  leftForearm: THREE.Bone[];
+  rightForearm: THREE.Bone[];
+  armPose?: PedestrianArmPose;
+}
+
+interface PedestrianArmPose {
+  leftShoulder: THREE.Bone;
+  rightShoulder: THREE.Bone;
+  leftBind: THREE.Quaternion;
+  rightBind: THREE.Quaternion;
+  leftParentLocal: THREE.Quaternion;
+  rightParentLocal: THREE.Quaternion;
+  leftParentLocalInv: THREE.Quaternion;
+  rightParentLocalInv: THREE.Quaternion;
+  leftBaseLocal: THREE.Quaternion;
+  rightBaseLocal: THREE.Quaternion;
 }
 
 const materialCache = new Map<string, THREE.Material>();
 const partGeometryCache = new Map<string, THREE.BufferGeometry>();
 const pedestrianGltfCache = new Map<string, Promise<THREE.Group>>();
+const pedestrianFitCache = new Map<
+  string,
+  { scale: number; centerX: number; centerZ: number; minY: number }
+>();
 
 function loadPedestrianScene(url: string): Promise<THREE.Group> {
   let pending = pedestrianGltfCache.get(url);
@@ -74,18 +95,90 @@ function loadPedestrianScene(url: string): Promise<THREE.Group> {
   return pending;
 }
 
+function pickPedestrianModelUrl(): string {
+  return PEDESTRIAN_MODEL_URLS[Math.floor(Math.random() * PEDESTRIAN_MODEL_URLS.length)];
+}
+
+const armSwingAxis = new THREE.Vector3(1, 0, 0);
+const armSwayAxis = new THREE.Vector3(0, 0, 1);
+const armPoseScratchA = new THREE.Quaternion();
+const armPoseScratchB = new THREE.Quaternion();
+const armPoseScratchC = new THREE.Quaternion();
+
+function buildArmPoseForShoulder(
+  root: THREE.Object3D,
+  rootInv: THREE.Matrix4,
+  shoulder: THREE.Bone,
+): { parentLocal: THREE.Quaternion; parentLocalInv: THREE.Quaternion; baseLocal: THREE.Quaternion } {
+  const upper =
+    shoulder.children.find((child): child is THREE.Bone => child instanceof THREE.Bone) ??
+    shoulder;
+  const shoulderPos = new THREE.Vector3()
+    .setFromMatrixPosition(shoulder.matrixWorld)
+    .applyMatrix4(rootInv);
+  const upperPos = new THREE.Vector3()
+    .setFromMatrixPosition(upper.matrixWorld)
+    .applyMatrix4(rootInv);
+  const restDir = upperPos.sub(shoulderPos).normalize();
+  const down = new THREE.Vector3(0, -1, 0);
+  const baseWorld = new THREE.Quaternion().setFromUnitVectors(restDir, down);
+  const parentWorld = new THREE.Quaternion()
+    .setFromRotationMatrix(shoulder.parent!.matrixWorld)
+    .normalize();
+  const rootWorld = new THREE.Quaternion()
+    .setFromRotationMatrix(root.matrixWorld)
+    .normalize();
+  const parentLocal = rootWorld.clone().invert().multiply(parentWorld);
+  const parentLocalInv = parentLocal.clone().invert();
+  const baseLocal = parentLocalInv.clone().multiply(baseWorld).multiply(parentLocal);
+  return { parentLocal, parentLocalInv, baseLocal };
+}
+
+function buildArmPose(root: THREE.Object3D, bones: PedestrianBones): void {
+  const leftShoulder = bones.leftArm[0];
+  const rightShoulder = bones.rightArm[0];
+  if (!leftShoulder || !rightShoulder) return;
+  root.updateMatrixWorld(true);
+  const rootInv = root.matrixWorld.clone().invert();
+  const left = buildArmPoseForShoulder(root, rootInv, leftShoulder);
+  const right = buildArmPoseForShoulder(root, rootInv, rightShoulder);
+  bones.armPose = {
+    leftShoulder,
+    rightShoulder,
+    leftBind: leftShoulder.quaternion.clone(),
+    rightBind: rightShoulder.quaternion.clone(),
+    leftParentLocal: left.parentLocal,
+    rightParentLocal: right.parentLocal,
+    leftParentLocalInv: left.parentLocalInv,
+    rightParentLocalInv: right.parentLocalInv,
+    leftBaseLocal: left.baseLocal,
+    rightBaseLocal: right.baseLocal,
+  };
+}
+
 function collectPedestrianBones(root: THREE.Object3D): PedestrianBones {
   const bones: PedestrianBones = {
     leftLeg: [],
     rightLeg: [],
     leftArm: [],
     rightArm: [],
+    leftForearm: [],
+    rightForearm: [],
   };
+  root.updateMatrixWorld(true);
   root.traverse((node) => {
     if (!(node instanceof THREE.Bone)) return;
     const name = node.name.toLowerCase();
     const isLeft = name.includes('left');
     const isRight = name.includes('right');
+    if (
+      /(forearm|lowerarm|lower_arm)/.test(name) ||
+      (name.includes('arm') && name.includes('fore'))
+    ) {
+      if (isLeft) bones.leftForearm.push(node);
+      else if (isRight) bones.rightForearm.push(node);
+      return;
+    }
     if (
       /(upleg|thigh|upperleg|upper_leg)/.test(name) ||
       (name.includes('leg') && name.includes('upper'))
@@ -102,20 +195,82 @@ function collectPedestrianBones(root: THREE.Object3D): PedestrianBones {
       else if (isRight) bones.rightArm.push(node);
     }
   });
+  buildArmPose(root, bones);
   return bones;
 }
 
 function resetPedestrianBones(bones: PedestrianBones | undefined): void {
   if (!bones) return;
+  if (bones.armPose) {
+    bones.armPose.leftShoulder.quaternion.copy(bones.armPose.leftBind);
+    bones.armPose.rightShoulder.quaternion.copy(bones.armPose.rightBind);
+  }
   for (const list of [
     bones.leftLeg,
     bones.rightLeg,
     bones.leftArm,
     bones.rightArm,
+    bones.leftForearm,
+    bones.rightForearm,
   ]) {
     for (const bone of list) {
       bone.rotation.x = 0;
+      bone.rotation.z = 0;
     }
+  }
+}
+
+function animatePedestrianArms(
+  bones: PedestrianBones,
+  stride: number,
+  armAmp: number,
+): void {
+  const pose = bones.armPose;
+  const leftSwing = stride * armAmp;
+  const rightSwing = -stride * armAmp;
+  const sway = Math.sin(stride) * 0.05;
+  if (pose) {
+    const applyShoulder = (
+      shoulder: THREE.Bone,
+      bind: THREE.Quaternion,
+      parentLocal: THREE.Quaternion,
+      parentLocalInv: THREE.Quaternion,
+      baseLocal: THREE.Quaternion,
+      swing: number,
+      sideSway: number,
+    ): void => {
+      armPoseScratchA.setFromAxisAngle(armSwingAxis, swing);
+      armPoseScratchB.copy(parentLocalInv).multiply(armPoseScratchA).multiply(parentLocal);
+      armPoseScratchC.copy(armPoseScratchB);
+      armPoseScratchA.setFromAxisAngle(armSwayAxis, sideSway);
+      armPoseScratchB.copy(parentLocalInv).multiply(armPoseScratchA).multiply(parentLocal);
+      armPoseScratchC
+        .multiply(armPoseScratchB)
+        .multiply(baseLocal)
+        .multiply(bind);
+      shoulder.quaternion.copy(armPoseScratchC);
+    };
+    applyShoulder(
+      pose.leftShoulder,
+      pose.leftBind,
+      pose.leftParentLocal,
+      pose.leftParentLocalInv,
+      pose.leftBaseLocal,
+      leftSwing,
+      sway,
+    );
+    applyShoulder(
+      pose.rightShoulder,
+      pose.rightBind,
+      pose.rightParentLocal,
+      pose.rightParentLocalInv,
+      pose.rightBaseLocal,
+      rightSwing,
+      -sway,
+    );
+  } else {
+    if (bones.leftArm[0]) bones.leftArm[0].rotation.x = leftSwing;
+    if (bones.rightArm[0]) bones.rightArm[0].rotation.x = rightSwing;
   }
 }
 
@@ -126,29 +281,94 @@ function animatePedestrianBones(
 ): void {
   if (!bones) return;
   const legAmp = amplitude * 0.85;
-  const armAmp = amplitude * 0.6;
+  const armAmp = amplitude * 0.62;
   if (bones.leftLeg[0]) bones.leftLeg[0].rotation.x = stride * legAmp;
   if (bones.rightLeg[0]) bones.rightLeg[0].rotation.x = -stride * legAmp;
-  if (bones.leftArm[0]) bones.leftArm[0].rotation.x = -stride * armAmp;
-  if (bones.rightArm[0]) bones.rightArm[0].rotation.x = stride * armAmp;
+  animatePedestrianArms(bones, stride, armAmp);
+  // 手臂前摆时肘部自然弯曲，后摆时伸直。
+  const leftElbow = Math.max(0, stride) * armAmp * 0.55;
+  const rightElbow = Math.max(0, -stride) * armAmp * 0.55;
+  if (bones.leftForearm[0]) bones.leftForearm[0].rotation.x = leftElbow;
+  if (bones.rightForearm[0]) bones.rightForearm[0].rotation.x = rightElbow;
+}
+
+function measureExternalBounds(root: THREE.Object3D): THREE.Box3 {
+  const box = new THREE.Box3();
+  const v = new THREE.Vector3();
+  const out = new THREE.Vector3();
+  const temp = new THREE.Vector3();
+  const skinMatrix = new THREE.Matrix4();
+  let measured = false;
+  root.updateMatrixWorld(true);
+  root.traverse((node) => {
+    if (!(node instanceof THREE.SkinnedMesh)) return;
+    const geometry = node.geometry;
+    const position = geometry.attributes.position;
+    const skinIndex = geometry.attributes.skinIndex;
+    const skinWeight = geometry.attributes.skinWeight;
+    const skeleton = node.skeleton;
+    if (!position || !skinIndex || !skinWeight || !skeleton) return;
+    measured = true;
+    for (let i = 0; i < position.count; i += 1) {
+      v.set(position.getX(i), position.getY(i), position.getZ(i));
+      out.set(0, 0, 0);
+      for (let j = 0; j < 4; j += 1) {
+        const weight = skinWeight.getComponent(i, j);
+        if (weight <= 0) continue;
+        const boneIndex = skinIndex.getComponent(i, j);
+        const bone = skeleton.bones[boneIndex];
+        const inverse = skeleton.boneInverses[boneIndex];
+        if (!bone || !inverse) continue;
+        skinMatrix.multiplyMatrices(bone.matrixWorld, inverse);
+        out.addScaledVector(temp.copy(v).applyMatrix4(skinMatrix), weight);
+      }
+      box.expandByPoint(out);
+    }
+  });
+  if (!measured) {
+    box.setFromObject(root);
+  }
+  return box;
+}
+
+function fitExternalRoot(root: THREE.Object3D): {
+  scale: number;
+  centerX: number;
+  centerZ: number;
+  minY: number;
+} {
+  const natural = measureExternalBounds(root);
+  const size = natural.getSize(new THREE.Vector3());
+  if (size.y < 1e-4) {
+    return { scale: 1, centerX: 0, centerZ: 0, minY: 0 };
+  }
+  const scale = EXTERNAL_MODEL_HEIGHT / size.y;
+  root.scale.setScalar(scale);
+  root.updateMatrixWorld(true);
+  const fitted = measureExternalBounds(root);
+  const center = fitted.getCenter(new THREE.Vector3());
+  return {
+    scale,
+    centerX: center.x,
+    centerZ: center.z,
+    minY: fitted.min.y,
+  };
 }
 
 async function attachPedestrianModel(group: THREE.Group): Promise<void> {
-  const url = PEDESTRIAN_MODEL_URLS[Math.floor(Math.random() * PEDESTRIAN_MODEL_URLS.length)];
+  const url = pickPedestrianModelUrl();
   try {
     const source = await loadPedestrianScene(url);
     const root = cloneSkeleton(source);
-    const box = new THREE.Box3().setFromObject(root);
-    const size = box.getSize(new THREE.Vector3());
-    if (size.y < 1e-4) return;
-    const scale = 1.7 / size.y;
-    root.scale.setScalar(scale);
-    root.updateMatrixWorld(true);
-    const fitted = new THREE.Box3().setFromObject(root);
-    const center = fitted.getCenter(new THREE.Vector3());
-    root.position.x -= center.x;
-    root.position.z -= center.z;
-    root.position.y -= fitted.min.y;
+    let fit = pedestrianFitCache.get(url);
+    if (!fit) {
+      fit = fitExternalRoot(root);
+      pedestrianFitCache.set(url, fit);
+    }
+    root.scale.setScalar(fit.scale);
+    root.position.x -= fit.centerX;
+    root.position.z -= fit.centerZ;
+    root.position.y -= fit.minY;
     root.traverse((node) => {
       if (node instanceof THREE.Mesh) {
         node.castShadow = true;
@@ -156,6 +376,8 @@ async function attachPedestrianModel(group: THREE.Group): Promise<void> {
       }
     });
     group.userData.externalRoot = root;
+    group.userData.modelUrl = url;
+    group.userData.fitScale = fit.scale;
     group.userData.bones = collectPedestrianBones(root);
     group.userData.proceduralModel.visible = false;
     group.add(root);

@@ -22,6 +22,7 @@ function emptySaved(): SavedProgress {
     selectedVehicleId: DEFAULT_VEHICLE_ID,
     selectedColor: VEHICLES[0].color,
     bestLaps: {},
+    pedestrianKills: 0,
     muted: false,
     bgmVolume: 0.7,
     sfxVolume: 0.8,
@@ -71,6 +72,10 @@ function loadSaved(): SavedProgress {
         : base.quality;
     const bgmVolume = clampVolume(parsed.bgmVolume, base.bgmVolume);
     const sfxVolume = clampVolume(parsed.sfxVolume, base.sfxVolume);
+    const pedestrianKills =
+      typeof parsed.pedestrianKills === 'number' && Number.isFinite(parsed.pedestrianKills)
+        ? Math.max(0, Math.floor(parsed.pedestrianKills))
+        : base.pedestrianKills;
     return {
       selectedVehicleId: vehicleId,
       selectedColor: color,
@@ -78,6 +83,7 @@ function loadSaved(): SavedProgress {
         parsed.bestLaps && typeof parsed.bestLaps === 'object'
           ? parsed.bestLaps
           : {},
+      pedestrianKills,
       muted: parsed.muted === true,
       bgmVolume,
       sfxVolume,
@@ -94,6 +100,7 @@ class GameState {
   mode: GameMode = 'menu';
   paused = false;
   mapMode: MapMode = 'finite';
+  pedestrianKills = 0;
   multiplayer: MultiplayerState = {
     connected: false,
     connecting: false,
@@ -146,6 +153,7 @@ class GameState {
     this.settings.controlMode = this.saved.controlMode;
     this.settings.density = this.saved.density;
     this.settings.quality = this.saved.quality;
+    this.pedestrianKills = this.saved.pedestrianKills;
     this.player.vehicleId = this.saved.selectedVehicleId;
     this.player.color = this.saved.selectedColor;
   }
@@ -177,6 +185,11 @@ class GameState {
     this.save();
   }
 
+  addPedestrianKill(): void {
+    this.pedestrianKills += 1;
+    this.save();
+  }
+
   resetRun(): void {
     this.player.lap = 0;
     this.player.position = 1;
@@ -190,6 +203,7 @@ class GameState {
   save(): void {
     this.saved.selectedVehicleId = this.player.vehicleId;
     this.saved.selectedColor = this.player.color;
+    this.saved.pedestrianKills = this.pedestrianKills;
     this.saved.muted = this.settings.muted;
     this.saved.bgmVolume = this.settings.bgmVolume;
     this.saved.sfxVolume = this.settings.sfxVolume;

@@ -90,6 +90,7 @@ export interface SavedProgress {
   selectedVehicleId: string;
   selectedColor: string;
   bestLaps: Record<string, number>;
+  pedestrianKills: number;
   muted: boolean;
   bgmVolume: number;
   sfxVolume: number;

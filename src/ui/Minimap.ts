@@ -6,6 +6,11 @@ interface MinimapDot {
   isPlayer: boolean;
 }
 
+interface MinimapRoutePoint {
+  x: number;
+  z: number;
+}
+
 export class Minimap {
   private readonly ctx: CanvasRenderingContext2D;
   private readonly size = 168;
@@ -27,7 +32,13 @@ export class Minimap {
     this.scale = (this.size - this.margin * 2) / range;
   }
 
-  render(playerX: number, playerZ: number, heading: number, dots: MinimapDot[] = []): void {
+  render(
+    playerX: number,
+    playerZ: number,
+    heading: number,
+    dots: MinimapDot[] = [],
+    route: MinimapRoutePoint[] = [],
+  ): void {
     const ctx = this.ctx;
     const size = this.size;
     ctx.clearRect(0, 0, size, size);
@@ -76,6 +87,21 @@ export class Minimap {
       ctx.stroke();
     }
 
+    if (route.length > 1) {
+      ctx.save();
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = 'rgba(70, 150, 255, 0.28)';
+      ctx.lineWidth = 6;
+      this.traceRoute(route);
+      ctx.stroke();
+      ctx.strokeStyle = '#3d9bff';
+      ctx.lineWidth = 2.5;
+      this.traceRoute(route);
+      ctx.stroke();
+      ctx.restore();
+    }
+
     for (const dot of dots) {
       ctx.fillStyle = dot.isPlayer ? '#ff4d4d' : '#ffd84d';
       ctx.beginPath();
@@ -103,6 +129,19 @@ export class Minimap {
     ctx.strokeStyle = 'rgba(255,255,255,0.35)';
     ctx.lineWidth = 1;
     ctx.strokeRect(0.5, 0.5, size - 1, size - 1);
+  }
+
+  private traceRoute(route: MinimapRoutePoint[]): void {
+    const ctx = this.ctx;
+    ctx.beginPath();
+    for (let i = 0; i < route.length; i += 1) {
+      const point = route[i];
+      const x = this.toCanvasX(point.x);
+      const z = this.toCanvasZ(point.z);
+      if (i === 0) ctx.moveTo(x, z);
+      else ctx.lineTo(x, z);
+    }
+    ctx.closePath();
   }
 
   private toCanvasX(worldX: number): number {

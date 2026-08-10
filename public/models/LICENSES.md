@@ -13,9 +13,10 @@
 
 - Source: three.js example models
   https://github.com/mrdoob/three.js/tree/dev/examples/models/gltf
-- `pedestrians/readyplayer.glb` - Ready Player Me avatar example
-- `pedestrians/soldier.glb` - Soldier
-- `pedestrians/michelle.glb` - Michelle (unused fallback)
+- `pedestrians/michelle.glb` - Michelle (realistic pedestrian model; each
+  pedestrian spawn randomly selects one model from the realistic model list)
+- `pedestrians/readyplayer.glb` - Ready Player Me avatar example (unused fallback)
+- `pedestrians/soldier.glb` - Soldier (unused fallback)
 - `pedestrians/robot.glb` - RobotExpressive (unused fallback)
 - These files are redistributed with this project for the game's runtime
   assets; see the three.js repository for each model's original terms.

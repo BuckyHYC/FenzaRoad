@@ -249,6 +249,11 @@ export class Game {
     return dots;
   }
 
+  getRaceRoute(): { x: number; z: number }[] {
+    if (gameState.mode !== 'race') return [];
+    return this.race.checkpoints.map((point) => ({ x: point.x, z: point.z }));
+  }
+
   private setWorld(mapMode: MapMode): void {
     const target =
       mapMode === 'endless' ? this.ensureEndlessCity() : this.finiteCity;
@@ -776,6 +781,7 @@ export class Game {
     ];
     this.pedestrians.update(dt, this.player.x, this.player.z, colliders, (intensity, isPlayer) => {
       if (isPlayer) {
+        gameState.addPedestrianKill();
         this.player.speed *= 0.42;
         this.player.lateral *= 0.4;
       }

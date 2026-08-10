@@ -96,12 +96,11 @@ function hillHeightAt(
   x: number,
   z: number,
 ): number {
-  const dx = x - hill.x;
-  const dz = z - hill.z;
-  const d = Math.hypot(dx, dz);
-  if (d >= hill.radius) return 0;
-  const t = 1 - d / hill.radius;
-  return hill.height * Math.pow(t, 1.4);
+  const dx = Math.abs(x - hill.x);
+  const dz = Math.abs(z - hill.z);
+  if (dx >= hill.radius || dz >= hill.radius) return 0;
+  const t = 1 - Math.max(dx, dz) / hill.radius;
+  return hill.height * t;
 }
 
 function makeInstanced(
@@ -613,20 +612,27 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
     hills.push({ x: spot.x, z: spot.z, radius, height });
   }
   for (const hill of hills) {
-    const domeGeometry = new THREE.PlaneGeometry(
+    const pyramidGeometry = new THREE.PlaneGeometry(
       hill.radius * 2,
       hill.radius * 2,
-      24,
-      24,
+      28,
+      28,
     );
-    domeGeometry.rotateX(-Math.PI / 2);
-    const domePositions = domeGeometry.attributes.position;
-    for (let i = 0; i < domePositions.count; i += 1) {
-      domePositions.setY(i, hillHeightAt(hill, domePositions.getX(i), domePositions.getZ(i)));
+    pyramidGeometry.rotateX(-Math.PI / 2);
+    const pyramidPositions = pyramidGeometry.attributes.position;
+    for (let i = 0; i < pyramidPositions.count; i += 1) {
+      pyramidPositions.setY(
+        i,
+        hillHeightAt(
+          hill,
+          pyramidPositions.getX(i) + hill.x,
+          pyramidPositions.getZ(i) + hill.z,
+        ),
+      );
     }
-    domeGeometry.computeVertexNormals();
+    pyramidGeometry.computeVertexNormals();
     const mound = new THREE.Mesh(
-      domeGeometry,
+      pyramidGeometry,
       hillMaterial,
     );
     mound.position.set(hill.x, 0, hill.z);
@@ -634,24 +640,6 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
     mound.castShadow = true;
     mound.receiveShadow = true;
     group.add(mound);
-    const rampAngle = rand() * Math.PI * 2;
-    const rampLength = hill.radius * 0.96;
-    const rampPitch = Math.atan2(hill.height * 0.78, rampLength);
-    const ramp = new THREE.Mesh(
-      new THREE.BoxGeometry(5, 0.12, rampLength),
-      dirtMaterial,
-    );
-    ramp.name = 'hill-ramp';
-    ramp.rotation.order = 'YXZ';
-    ramp.rotation.y = Math.PI / 2 - rampAngle;
-    ramp.rotation.x = rampPitch;
-    ramp.position.set(
-      hill.x + Math.cos(rampAngle) * (hill.radius - rampLength / 2),
-      hill.height * 0.36,
-      hill.z + Math.sin(rampAngle) * (hill.radius - rampLength / 2),
-    );
-    ramp.receiveShadow = true;
-    group.add(ramp);
   }
   for (const trailX of [740, 885]) {
     const trail = new THREE.Mesh(
