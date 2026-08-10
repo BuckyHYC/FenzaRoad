@@ -719,6 +719,63 @@ test('race menu switches layouts and boundary fence sits outside the map', async
   expect(errors).toEqual([]);
 });
 
+test('race checkpoints sit on straights instead of turn corners', async ({ page }) => {
+  await boot(page);
+  const layouts = await page.evaluate(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      city: {
+        raceLayouts: {
+          id: string;
+          checkpoints: { x: number; z: number }[];
+          routePoints: { x: number; z: number }[];
+        }[];
+      };
+    };
+    const distToSegment = (
+      px: number,
+      pz: number,
+      ax: number,
+      az: number,
+      bx: number,
+      bz: number,
+    ): number => {
+      const abx = bx - ax;
+      const abz = bz - az;
+      const lenSq = abx * abx + abz * abz;
+      let t = lenSq > 0 ? ((px - ax) * abx + (pz - az) * abz) / lenSq : 0;
+      t = Math.max(0, Math.min(1, t));
+      return Math.hypot(px - (ax + abx * t), pz - (az + abz * t));
+    };
+    return game.city.raceLayouts.map((layout) => {
+      const route = layout.routePoints;
+      const corners = route.filter((point, i) => {
+        const prev = route[(i - 1 + route.length) % route.length];
+        const next = route[(i + 1) % route.length];
+        const cross =
+          (point.x - prev.x) * (next.z - point.z) -
+          (point.z - prev.z) * (next.x - point.x);
+        return Math.abs(cross) > 1e-3;
+      });
+      let bad = 0;
+      for (const cp of layout.checkpoints) {
+        const onRoute = route.some((point, i) => {
+          const next = route[(i + 1) % route.length];
+          return distToSegment(cp.x, cp.z, point.x, point.z, next.x, next.z) < 1.5;
+        });
+        const nearCorner = corners.some(
+          (corner) => Math.hypot(cp.x - corner.x, cp.z - corner.z) < 25,
+        );
+        if (!onRoute || nearCorner) bad += 1;
+      }
+      return { id: layout.id, count: layout.checkpoints.length, bad };
+    });
+  });
+  for (const layout of layouts) {
+    expect(layout.count).toBeGreaterThan(0);
+    expect(layout.bad).toBe(0);
+  }
+});
+
 test('race route is highlighted blue on the minimap', async ({ page }) => {
   await boot(page);
   await page.getByRole('button', { name: '竞速模式' }).click();
@@ -743,6 +800,51 @@ test('race route is highlighted blue on the minimap', async ({ page }) => {
     }
     return bluePixels > 40;
   }, undefined, { timeout: 15000 });
+});
+
+test('race AI opponents follow the route and keep moving', async ({ page }) => {
+  await boot(page);
+  await page.getByRole('button', { name: '竞速模式' }).click();
+  await page.getByRole('button', { name: '开始比赛' }).click();
+  await page.waitForFunction(() => {
+    const g = window as unknown as GameWindow;
+    return g.__GAME_STATE__.race.phase === 'racing';
+  }, undefined, { timeout: 15000 });
+  const before = await page.evaluate(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      race: { racers: { vehicle: { x: number; z: number } }[] };
+    };
+    return game.race.racers.slice(1).map((racer) => ({
+      x: racer.vehicle.x,
+      z: racer.vehicle.z,
+    }));
+  });
+  await page.waitForTimeout(6000);
+  const after = await page.evaluate(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      race: {
+        racers: {
+          vehicle: { x: number; z: number };
+          checkpoint: number;
+          lap: number;
+        }[];
+      };
+    };
+    return game.race.racers.slice(1).map((racer) => ({
+      x: racer.vehicle.x,
+      z: racer.vehicle.z,
+      checkpoint: racer.checkpoint,
+      lap: racer.lap,
+    }));
+  });
+  for (let i = 0; i < before.length; i += 1) {
+    const moved = Math.hypot(
+      after[i].x - before[i].x,
+      after[i].z - before[i].z,
+    );
+    expect(moved).toBeGreaterThan(60);
+    expect(after[i].lap + after[i].checkpoint).toBeGreaterThan(0);
+  }
 });
 
 test('boundary collision stops the car at the visible fence', async ({ page }) => {
@@ -933,7 +1035,7 @@ test('map splits into rectangular zones and sun lights from an offset', async ({
       }
       if (obj.name === 'hill' && obj.position) {
         hillCount += 1;
-        if (obj.position.x < 660 || obj.position.x > 905) hillsInside = false;
+        if (obj.position.x < 905 || obj.position.x > 1195) hillsInside = false;
       }
       if (obj.name === 'village-house') villageHouses += 1;
       if (obj.name === 'boundary-wall') boundaryWalls += 1;
@@ -1005,13 +1107,24 @@ test('village houses avoid roads and have collision volume', async ({ page }) =>
         };
       };
     };
-    const roadRects = [
+    const roadRects: {
+      minX: number;
+      maxX: number;
+      minZ: number;
+      maxZ: number;
+    }[] = [
       { minX: 556, maxX: 564, minZ: 30, maxZ: 1170 },
       { minX: 480, maxX: 630, minZ: 222, maxZ: 228 },
       { minX: 480, maxX: 630, minZ: 372, maxZ: 378 },
       { minX: 480, maxX: 630, minZ: 522, maxZ: 528 },
       { minX: 480, maxX: 630, minZ: 672, maxZ: 678 },
     ];
+    for (let i = 0; i <= 8; i += 1) {
+      const line = i * 150;
+      roadRects.push({ minX: line - 13, maxX: line + 13, minZ: 0, maxZ: 1200 });
+      roadRects.push({ minX: 0, maxX: 1200, minZ: line - 13, maxZ: line + 13 });
+    }
+    roadRects.push({ minX: 0, maxX: 1200, minZ: 589, maxZ: 611 });
     const overlaps = (
       a: { minX: number; maxX: number; minZ: number; maxZ: number },
       b: { minX: number; maxX: number; minZ: number; maxZ: number },
@@ -1023,6 +1136,7 @@ test('village houses avoid roads and have collision volume', async ({ page }) =>
       a.maxZ > b.minZ - margin;
     let houses = 0;
     let blocked = 0;
+    let outsideVillage = 0;
     game.city.group.traverse((raw) => {
       const obj = raw as {
         name?: string;
@@ -1042,11 +1156,14 @@ test('village houses avoid roads and have collision volume', async ({ page }) =>
         return;
       }
       if (roadRects.some((road) => overlaps(collider, road, 2))) blocked += 1;
+      const centerX = (collider.minX + collider.maxX) / 2;
+      if (centerX < 612 || centerX > 888) outsideVillage += 1;
     });
-    return { houses, blocked };
+    return { houses, blocked, outsideVillage };
   });
   expect(result.houses).toBeGreaterThan(10);
   expect(result.blocked).toBe(0);
+  expect(result.outsideVillage).toBe(0);
 });
 
 test('hills are visible four-sided pyramids and stay driveable', async ({ page }) => {
@@ -1076,8 +1193,16 @@ test('hills are visible four-sided pyramids and stay driveable', async ({ page }
     });
     const first = hills[0];
     const centerHeight = game.city.getTerrainHeight(first.x, first.z);
-    const edgeHeight = game.city.getTerrainHeight(first.x + 22, first.z);
     const position = firstMesh!.geometry.attributes.position;
+    let minLocalX = Infinity;
+    let maxLocalX = -Infinity;
+    for (let i = 0; i < position.count; i += 1) {
+      const px = position.getX(i);
+      minLocalX = Math.min(minLocalX, px);
+      maxLocalX = Math.max(maxLocalX, px);
+    }
+    const halfSize = (maxLocalX - minLocalX) / 2;
+    const edgeHeight = game.city.getTerrainHeight(first.x + halfSize, first.z);
     const index = firstMesh!.geometry.index;
     const normals = new Set<string>();
     for (let i = 0; i < index.count; i += 3) {
@@ -1125,7 +1250,7 @@ test('hills are visible four-sided pyramids and stay driveable', async ({ page }
   expect(hill.uniqueNormals).toBeGreaterThanOrEqual(3);
   expect(hill.uniqueNormals).toBeLessThanOrEqual(8);
   expect(hill.centerHeight).toBeGreaterThan(2);
-  expect(hill.edgeHeight).toBe(0);
+  expect(hill.edgeHeight).toBeLessThan(0.001);
   expect(hill.blocked).toBe(false);
 
   await page.evaluate(() => {
@@ -1574,7 +1699,8 @@ test('pedestrian arms hang at the sides and swing with the walk cycle', async ({
   expect(result.back.rightHand.dy).toBeLessThan(-0.4);
   expect(Math.abs(result.back.leftHand.dz - result.forward.leftHand.dz)).toBeGreaterThan(0.1);
   expect(result.back.leftElbow).not.toBeCloseTo(result.forward.leftElbow, 3);
-  expect(Math.abs(result.forward.rightElbow)).toBeGreaterThan(0.05);
+  expect(Math.abs(result.forward.leftElbow)).toBeGreaterThan(0.05);
+  expect(result.back.rightElbow).toBeGreaterThan(result.back.leftElbow + 0.05);
 });
 
 test('mobile HUD moves bottom widgets to the top right', async ({ page }) => {

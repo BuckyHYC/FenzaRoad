@@ -103,6 +103,68 @@ function hillHeightAt(
   return hill.height * t;
 }
 
+function raceCheckpointPositions(points: THREE.Vector3[]): THREE.Vector3[] {
+  const n = points.length;
+  if (n < 2) return points.map((p) => p.clone());
+  const isCorner = (index: number): boolean => {
+    const prev = points[(index - 1 + n) % n];
+    const curr = points[index];
+    const next = points[(index + 1) % n];
+    const ax = curr.x - prev.x;
+    const az = curr.z - prev.z;
+    const bx = next.x - curr.x;
+    const bz = next.z - curr.z;
+    const cross = ax * bz - az * bx;
+    const dot = ax * bx + az * bz;
+    return Math.abs(cross) > 1e-3 || dot < -1e-3;
+  };
+  const cornerIndices: number[] = [];
+  for (let i = 0; i < n; i += 1) {
+    if (isCorner(i)) cornerIndices.push(i);
+  }
+  if (cornerIndices.length === 0) return points.map((p) => p.clone());
+  const runs: { a: THREE.Vector3; b: THREE.Vector3; checkpoint: THREE.Vector3 }[] = [];
+  for (let k = 0; k < cornerIndices.length; k += 1) {
+    const start = cornerIndices[k];
+    const end = cornerIndices[(k + 1) % cornerIndices.length];
+    const a = points[start];
+    const b = points[end];
+    runs.push({
+      a,
+      b,
+      checkpoint: new THREE.Vector3((a.x + b.x) / 2, 0, (a.z + b.z) / 2),
+    });
+  }
+  const startPoint = points[0];
+  const nextPoint = points[1 % n];
+  const startDx = nextPoint.x - startPoint.x;
+  const startDz = nextPoint.z - startPoint.z;
+  const startLen = Math.hypot(startDx, startDz) || 1;
+  const sux = startDx / startLen;
+  const suz = startDz / startLen;
+  const startMidX = (startPoint.x + nextPoint.x) / 2;
+  const startMidZ = (startPoint.z + nextPoint.z) / 2;
+  for (const run of runs) {
+    const abx = run.b.x - run.a.x;
+    const abz = run.b.z - run.a.z;
+    const lenSq = abx * abx + abz * abz;
+    const t0 =
+      lenSq > 0
+        ? ((startPoint.x - run.a.x) * abx + (startPoint.z - run.a.z) * abz) / lenSq
+        : 0;
+    if (t0 < -0.01 || t0 > 1.01) continue;
+    const distToStart = Math.hypot(
+      run.checkpoint.x - startMidX,
+      run.checkpoint.z - startMidZ,
+    );
+    if (distToStart < 45) {
+      run.checkpoint.x += sux * 45;
+      run.checkpoint.z += suz * 45;
+    }
+  }
+  return runs.map((run) => run.checkpoint);
+}
+
 function makeInstanced(
   geometry: THREE.BufferGeometry,
   material: THREE.Material,
@@ -423,12 +485,14 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
     villageGroup.add(lane);
   }
   const houseZones: [number, number][] = [
-    [45, 205],
-    [250, 350],
-    [390, 435],
-    [495, 540],
-    [565, 660],
-    [700, 855],
+    [45, 135],
+    [175, 285],
+    [325, 435],
+    [465, 555],
+    [615, 735],
+    [765, 885],
+    [915, 1035],
+    [1065, 1145],
   ];
   const villageHouseColliders: Aabb[] = [];
   const villageRoadColliders: Aabb[] = [
@@ -442,9 +506,37 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
       maxZ: laneZ + 3,
     });
   }
+  const gridRoadLines: number[] = [];
+  for (let i = 0; i <= N; i += 1) gridRoadLines.push(i * B);
+  const villageRoadBlocks: Aabb[] = [
+    ...villageRoadColliders,
+    ...gridRoadLines.map((lineX) => ({
+      minX: lineX - WORLD.ROAD_WIDTH / 2 - 5,
+      maxX: lineX + WORLD.ROAD_WIDTH / 2 + 5,
+      minZ: 0,
+      maxZ: MAP_SIZE,
+    })),
+    ...gridRoadLines.map((lineZ) => ({
+      minX: 0,
+      maxX: MAP_SIZE,
+      minZ: lineZ - WORLD.ROAD_WIDTH / 2 - 5,
+      maxZ: lineZ + WORLD.ROAD_WIDTH / 2 + 5,
+    })),
+    {
+      minX: 0,
+      maxX: MAP_SIZE,
+      minZ: WORLD.RIVER_Z - WORLD.RIVER_WIDTH / 2 - 6,
+      maxZ: WORLD.RIVER_Z + WORLD.RIVER_WIDTH / 2 + 6,
+    },
+  ];
+  const villageXGaps: [number, number][] = [
+    [CITY_MAX_X + 13, 750 - 13],
+    [750 + 13, VILLAGE_MAX_X - 13],
+  ];
   for (const [zMin, zMax] of houseZones) {
     for (let k = 0; k < 3; k += 1) {
-      let x = 478 + rand() * 165;
+      const gap = villageXGaps[Math.floor(rand() * villageXGaps.length)];
+      let x = gap[0] + rand() * (gap[1] - gap[0]);
       let z = zMin + rand() * (zMax - zMin);
       let bw = 9 + rand() * 4.5;
       let bd = 7 + rand() * 3;
@@ -460,9 +552,8 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
       };
       const collides = (): boolean => {
         const bounds = rotatedBounds();
-        if (Math.abs(z - 460) < 14) return true;
         if (
-          villageRoadColliders.some((road) =>
+          villageRoadBlocks.some((road) =>
             overlapsAabb(
               bounds.minX,
               bounds.minZ,
@@ -487,7 +578,7 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
         );
       };
       while (attempts < 14 && collides()) {
-        x = 478 + rand() * 165;
+        x = gap[0] + rand() * (gap[1] - gap[0]);
         z = zMin + rand() * (zMax - zMin);
         bw = 9 + rand() * 4.5;
         bd = 7 + rand() * 3;
@@ -538,8 +629,25 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
       new THREE.BoxGeometry(14 + rand() * 12, 0.05, 10 + rand() * 8),
       fieldMaterial,
     );
-    field.position.set(475 + rand() * 185, 0.035, 55 + rand() * 790);
-    if (Math.abs(field.position.z - 460) < 14 || Math.abs(field.position.x - 560) < 10) {
+    field.position.set(615 + rand() * 275, 0.035, 45 + rand() * 1110);
+    const fieldBounds = {
+      minX: field.position.x - 14,
+      maxX: field.position.x + 14,
+      minZ: field.position.z - 10,
+      maxZ: field.position.z + 10,
+    };
+    if (
+      villageRoadBlocks.some((road) =>
+        overlapsAabb(
+          fieldBounds.minX,
+          fieldBounds.minZ,
+          fieldBounds.maxX,
+          fieldBounds.maxZ,
+          road,
+          1,
+        ),
+      )
+    ) {
       f -= 1;
       continue;
     }
@@ -547,7 +655,22 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
     field.receiveShadow = true;
     villageGroup.add(field);
   }
+  const villageTreeColliders: CircleCollider[] = [];
   for (let t = 0; t < 14; t += 1) {
+    let tx = 620 + rand() * 270;
+    let tz = 45 + rand() * 1110;
+    if (
+      villageRoadBlocks.some(
+        (road) =>
+          tx > road.minX - 3 &&
+          tx < road.maxX + 3 &&
+          tz > road.minZ - 3 &&
+          tz < road.maxZ + 3,
+      )
+    ) {
+      t -= 1;
+      continue;
+    }
     const trunk = new THREE.Mesh(
       new THREE.CylinderGeometry(0.18, 0.3, 2.4, 7),
       villageWoodMaterial,
@@ -560,8 +683,9 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
     foliage.position.y = 3.4;
     const tree = new THREE.Group();
     tree.add(trunk, foliage);
-    tree.position.set(475 + rand() * 180, 0, 45 + rand() * 810);
+    tree.position.set(tx, 0, tz);
     villageGroup.add(tree);
+    villageTreeColliders.push({ x: tx, z: tz, radius: TREE_COLLIDER_RADIUS });
   }
   group.add(villageGroup);
 
@@ -596,19 +720,31 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
 
   const hills: { x: number; z: number; radius: number; height: number }[] = [];
   const hillSpots: { x: number; z: number; minR: number; maxR: number }[] = [];
-  for (const z of [65, 215, 365, 515, 665, 815]) {
-    for (const spot of [
-      { x: 705, minR: 15, maxR: 20 },
-      { x: 820, minR: 20, maxR: 30 },
-      { x: 868, minR: 13, maxR: 18 },
-    ]) {
-      if ((z === 65 && spot.x === 868) || (z === 815 && spot.x === 705)) continue;
-      hillSpots.push({ x: spot.x, z, minR: spot.minR, maxR: spot.maxR });
+  for (const z of [55, 205, 355, 505, 655, 805, 955, 1105]) {
+    hillSpots.push({ x: 945 + (rand() - 0.5) * 45, z, minR: 15, maxR: 26 });
+    hillSpots.push({ x: 1095 + (rand() - 0.5) * 32, z, minR: 13, maxR: 22 });
+  }
+  const hillRoadClear = (x: number, z: number, radius: number): boolean => {
+    for (const lineX of gridRoadLines) {
+      if (Math.abs(x - lineX) < radius + 7) return false;
     }
+    for (const lineZ of gridRoadLines) {
+      if (Math.abs(z - lineZ) < radius + 7) return false;
+    }
+    if (Math.abs(z - WORLD.RIVER_Z) < radius + 20) return false;
+    return true;
   }
   for (const spot of hillSpots) {
     const radius = spot.minR + rand() * (spot.maxR - spot.minR);
-    const height = 3.5 + rand() * 2.5;
+    if (!hillRoadClear(spot.x, spot.z, radius)) continue;
+    if (
+      hills.some(
+        (hill) => Math.hypot(hill.x - spot.x, hill.z - spot.z) < hill.radius + radius + 12,
+      )
+    ) {
+      continue;
+    }
+    const height = 3 + rand() * 7;
     hills.push({ x: spot.x, z: spot.z, radius, height });
   }
   for (const hill of hills) {
@@ -765,6 +901,7 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
   const buildingColliders: Aabb[] = [];
   buildingColliders.push(...villageHouseColliders);
   const treeColliders: CircleCollider[] = [];
+  treeColliders.push(...villageTreeColliders);
   const inset = WORLD.BUILDING_INSET;
   for (let j = 0; j < N; j += 1) {
     for (let i = 0; i < N; i += 1) {
@@ -1349,7 +1486,11 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
         points.pop();
       }
     }
-    const checkpoints = points.map((p) => ({ x: p.x, z: p.z }));
+    const routePoints = points.map((p) => ({ x: p.x, z: p.z }));
+    const checkpoints = raceCheckpointPositions(points).map((p) => ({
+      x: p.x,
+      z: p.z,
+    }));
     const layoutGroup = new THREE.Group();
     layoutGroup.name = `race-layout-${id}`;
     const raceBarriers: Aabb[] = [];
@@ -1361,10 +1502,18 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
     const startLen = Math.hypot(startDx, startDz);
     const sux = startDx / startLen;
     const suz = startDz / startLen;
-    const snx = -suz;
-    const snz = sux;
+    let snx = -suz;
+    let snz = sux;
     const midX = (points[0].x + points[1].x) / 2;
     const midZ = (points[0].z + points[1].z) / 2;
+    const centroidX =
+      points.reduce((sum, point) => sum + point.x, 0) / points.length;
+    const centroidZ =
+      points.reduce((sum, point) => sum + point.z, 0) / points.length;
+    if ((centroidX - midX) * snx + (centroidZ - midZ) * snz < 0) {
+      snx = -snx;
+      snz = -snz;
+    }
     const startGridX = midX + snx * startGridOffset;
     const startGridZ = midZ + snz * startGridOffset;
     const startSlots: { x: number; z: number }[] = [];
@@ -1581,6 +1730,7 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
       id,
       name,
       checkpoints,
+      routePoints,
       startSlots,
       startHeading,
       raceBarriers,

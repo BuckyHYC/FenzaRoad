@@ -226,8 +226,8 @@ function animatePedestrianArms(
   armAmp: number,
 ): void {
   const pose = bones.armPose;
-  const leftSwing = stride * armAmp;
-  const rightSwing = -stride * armAmp;
+  const leftSwing = -stride * armAmp;
+  const rightSwing = stride * armAmp;
   const sway = Math.sin(stride) * 0.05;
   if (pose) {
     const applyShoulder = (
@@ -286,8 +286,8 @@ function animatePedestrianBones(
   if (bones.rightLeg[0]) bones.rightLeg[0].rotation.x = -stride * legAmp;
   animatePedestrianArms(bones, stride, armAmp);
   // 手臂前摆时肘部自然弯曲，后摆时伸直。
-  const leftElbow = Math.max(0, stride) * armAmp * 0.55;
-  const rightElbow = Math.max(0, -stride) * armAmp * 0.55;
+  const leftElbow = Math.max(0, -stride) * armAmp * 0.55;
+  const rightElbow = Math.max(0, stride) * armAmp * 0.55;
   if (bones.leftForearm[0]) bones.leftForearm[0].rotation.x = leftElbow;
   if (bones.rightForearm[0]) bones.rightForearm[0].rotation.x = rightElbow;
 }
@@ -481,13 +481,19 @@ function buildPedestrian(): THREE.Group {
   );
   const armPivot = new THREE.Group();
   armPivot.position.set(0, 1.16, -0.02);
+  const leftArmPivot = new THREE.Group();
+  leftArmPivot.position.set(-0.27, 0, 0);
+  const rightArmPivot = new THREE.Group();
+  rightArmPivot.position.set(0.27, 0, 0);
   const leftArm = new THREE.Mesh(armGeo, armMat);
-  leftArm.position.set(-0.27, -0.17, 0);
+  leftArm.position.set(0, -0.17, 0);
   leftArm.castShadow = true;
   const rightArm = new THREE.Mesh(armGeo, armMat);
-  rightArm.position.set(0.27, -0.17, 0);
+  rightArm.position.set(0, -0.17, 0);
   rightArm.castShadow = true;
-  armPivot.add(leftArm, rightArm);
+  leftArmPivot.add(leftArm);
+  rightArmPivot.add(rightArm);
+  armPivot.add(leftArmPivot, rightArmPivot);
 
   const headGeo = geometry(
     'ped-head',
@@ -513,6 +519,8 @@ function buildPedestrian(): THREE.Group {
   group.userData.leftLegPivot = leftLegPivot;
   group.userData.rightLegPivot = rightLegPivot;
   group.userData.armPivot = armPivot;
+  group.userData.leftArmPivot = leftArmPivot;
+  group.userData.rightArmPivot = rightArmPivot;
   group.userData.headGroup = headGroup;
   void attachPedestrianModel(group);
   return group;
@@ -753,6 +761,8 @@ export class PedestrianSystem {
       group.userData.leftLegPivot.rotation.x = 0;
       group.userData.rightLegPivot.rotation.x = 0;
       group.userData.armPivot.rotation.x = 0;
+      group.userData.leftArmPivot.rotation.x = 0;
+      group.userData.rightArmPivot.rotation.x = 0;
       group.userData.headGroup.rotation.z = 0;
       resetPedestrianBones(group.userData.bones as PedestrianBones | undefined);
     } else {
@@ -765,7 +775,9 @@ export class PedestrianSystem {
       );
       group.userData.leftLegPivot.rotation.x = stride * amplitude;
       group.userData.rightLegPivot.rotation.x = -stride * amplitude;
-      group.userData.armPivot.rotation.x = -stride * amplitude * 0.55;
+      group.userData.armPivot.rotation.x = 0;
+      group.userData.leftArmPivot.rotation.x = -stride * amplitude * 0.55;
+      group.userData.rightArmPivot.rotation.x = stride * amplitude * 0.55;
       group.userData.leftLegPivot.rotation.z = ped.moving ? 0.06 : 0;
       group.userData.rightLegPivot.rotation.z = ped.moving ? -0.06 : 0;
       group.userData.headGroup.rotation.z = Math.sin(ped.phase * 0.5) * 0.08;

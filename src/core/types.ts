@@ -129,6 +129,7 @@ export interface RaceLayout {
   id: RaceLayoutId;
   name: string;
   checkpoints: { x: number; z: number }[];
+  routePoints?: { x: number; z: number }[];
   startSlots: { x: number; z: number }[];
   startHeading: number;
   raceBarriers: Aabb[];

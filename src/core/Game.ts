@@ -251,7 +251,11 @@ export class Game {
 
   getRaceRoute(): { x: number; z: number }[] {
     if (gameState.mode !== 'race') return [];
-    return this.race.checkpoints.map((point) => ({ x: point.x, z: point.z }));
+    const route =
+      this.race.routePoints.length > 0
+        ? this.race.routePoints
+        : this.race.checkpoints;
+    return route.map((point) => ({ x: point.x, z: point.z }));
   }
 
   private setWorld(mapMode: MapMode): void {
@@ -558,7 +562,17 @@ export class Game {
     }
     this.race = new RaceManager(
       layout.checkpoints.map((p) => new THREE.Vector3(p.x, 0, p.z)),
-      layout,
+      {
+        checkpointRadius: layout.checkpointRadius,
+        corridorWidth: layout.corridorWidth,
+        routePoints: layout.routePoints ?? layout.checkpoints,
+        avoidBoxes: [
+          ...this.city.buildingColliders,
+          ...this.city.boundaryColliders,
+          ...layout.raceBarriers,
+        ],
+        avoidCircles: this.city.treeColliders,
+      },
     );
     this.race.init(
       this.player,
@@ -649,16 +663,12 @@ export class Game {
       return;
     }
     if (gameState.mode === 'race' && this.race.phase !== 'finished') {
-      const racer = this.race.racers[this.race.playerIndex];
-      const W = this.race.checkpoints.length;
-      const target = this.race.checkpoints[(racer.checkpoint + 1) % W];
-      const prev = this.race.checkpoints[racer.checkpoint];
-      const dx = target.x - prev.x;
-      const dz = target.z - prev.z;
-      const len = Math.hypot(dx, dz) || 1;
-      const nx = dx / len;
-      const nz = dz / len;
-      this.player.reset(target.x - nx * 26, target.z - nz * 26, Math.atan2(nx, nz));
+      const layout = this.getActiveRaceLayout();
+      const slot =
+        layout.startSlots[
+          Math.min(this.race.playerIndex, layout.startSlots.length - 1)
+        ];
+      this.player.reset(slot.x, slot.z, layout.startHeading);
     }
   }
 

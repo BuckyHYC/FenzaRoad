@@ -11,7 +11,7 @@ export const cityTourLayout: RaceLayoutDefinition = {
   flagOffset: 12.5,
   startGridOffset: 3.5,
   startGridSpacing: 11,
-  startGridRowOffset: 7,
+  startGridRowOffset: 4,
   path: [
     [1, 6], [2, 6], [2, 5], [3, 5], [3, 4], [4, 4], [4, 3], [5, 3],
     [5, 2], [6, 2], [6, 1], [5, 1], [4, 1], [4, 2], [3, 2], [3, 3],

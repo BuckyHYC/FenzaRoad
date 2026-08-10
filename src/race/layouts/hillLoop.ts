@@ -11,7 +11,7 @@ export const hillLoopLayout: RaceLayoutDefinition = {
   flagOffset: 15,
   startGridOffset: 3.5,
   startGridSpacing: 11,
-  startGridRowOffset: 7,
+  startGridRowOffset: 4,
   path: [
     [4, 5], [5, 5], [5, 6], [6, 6], [6, 7], [7, 7], [7, 5], [6, 5],
     [6, 4], [7, 4], [7, 3], [6, 3], [6, 2], [7, 2], [7, 1], [6, 1],

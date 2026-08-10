@@ -11,7 +11,7 @@ export const perimeterLayout: RaceLayoutDefinition = {
   flagOffset: 13.5,
   startGridOffset: 3.5,
   startGridSpacing: 11,
-  startGridRowOffset: 7,
+  startGridRowOffset: 4,
   path: (() => {
     const N = 8;
     const startI = Math.floor(N / 2);
