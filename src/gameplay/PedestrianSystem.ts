@@ -324,6 +324,68 @@ export class PedestrianSystem {
     this.clear();
   }
 
+  rebindCity(): void {
+    for (let i = this.pedestrians.length - 1; i >= 0; i -= 1) {
+      if (!this.rebindPedestrian(this.pedestrians[i])) {
+        this.scene.remove(this.pedestrians[i].group);
+        this.pedestrians.splice(i, 1);
+      }
+    }
+  }
+
+  private rebindPedestrian(ped: Pedestrian): boolean {
+    const x = ped.x;
+    const z = ped.z;
+    let bestDist = Infinity;
+    let best:
+      | {
+          edgeId: number;
+          fromNode: number;
+          toNode: number;
+          t: number;
+          lateral: number;
+        }
+      | null = null;
+    for (const edge of this.city.edges) {
+      const a = this.city.intersections[edge.from];
+      const b = this.city.intersections[edge.to];
+      const len = edge.length;
+      const ux = (b.x - a.x) / len;
+      const uz = (b.z - a.z) / len;
+      const t = Math.max(
+        0,
+        Math.min(1, ((x - a.x) * ux + (z - a.z) * uz) / len),
+      );
+      const px = a.x + ux * t * len;
+      const pz = a.z + uz * t * len;
+      const lateral = -(x - px) * uz + (z - pz) * ux;
+      const dist = Math.hypot(x - px, z - pz);
+      if (dist < bestDist && Math.abs(lateral) <= 13) {
+        bestDist = dist;
+        best = {
+          edgeId: edge.id,
+          fromNode: edge.from,
+          toNode: edge.to,
+          t,
+          lateral,
+        };
+      }
+    }
+    if (!best || bestDist > 15) return false;
+    ped.edgeId = best.edgeId;
+    ped.fromNode = best.fromNode;
+    ped.toNode = best.toNode;
+    ped.t = best.t;
+    ped.side = best.lateral >= 0 ? 1 : -1;
+    ped.jitter = Math.max(
+      -2.5,
+      Math.min(2.5, Math.abs(best.lateral) - PEDESTRIAN_CONFIG.SIDEWALK_OFFSET),
+    );
+    ped.moving = true;
+    ped.pauseTimer = 0;
+    return true;
+  }
+
   clear(): void {
     for (const ped of this.pedestrians) {
       this.scene.remove(ped.group);

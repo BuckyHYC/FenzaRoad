@@ -38,6 +38,7 @@ export interface City {
   updateSignals(timeSec: number): void;
   updateWater(timeSec: number): void;
   updateChunks(px: number, pz: number): void;
+  getTerrainHeight(x: number, z: number): number;
 }
 
 function mulberry32(seed: number): () => number {
@@ -62,6 +63,35 @@ function transformedBox(
   const geometry = new THREE.BoxGeometry(width, height, depth);
   geometry.applyMatrix4(new THREE.Matrix4().makeTranslation(x, y, z));
   return geometry;
+}
+
+function overlapsAabb(
+  minX: number,
+  minZ: number,
+  maxX: number,
+  maxZ: number,
+  other: Aabb,
+  margin = 0,
+): boolean {
+  return (
+    minX < other.maxX + margin &&
+    maxX > other.minX - margin &&
+    minZ < other.maxZ + margin &&
+    maxZ > other.minZ - margin
+  );
+}
+
+function hillHeightAt(
+  hill: { x: number; z: number; radius: number; height: number },
+  x: number,
+  z: number,
+): number {
+  const dx = x - hill.x;
+  const dz = z - hill.z;
+  const d = Math.hypot(dx, dz);
+  if (d >= hill.radius) return 0;
+  const t = 1 - d / hill.radius;
+  return hill.height * Math.pow(t, 1.4);
 }
 
 function makeInstanced(
@@ -266,10 +296,6 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
     color: 0x4f7d3d,
     roughness: 0.95,
   });
-  const hillRockMaterial = new THREE.MeshStandardMaterial({
-    color: 0x7d6a56,
-    roughness: 1,
-  });
   const highwayMaterial = new THREE.MeshStandardMaterial({
     color: 0x565b62,
     roughness: 0.9,
@@ -395,29 +421,81 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
     [565, 660],
     [700, 855],
   ];
-  const housePositions: { x: number; z: number }[] = [];
+  const villageHouseColliders: Aabb[] = [];
+  const villageRoadColliders: Aabb[] = [
+    { minX: 556, maxX: 564, minZ: 30, maxZ: MAP_SIZE - 30 },
+  ];
+  for (const laneZ of [225, 375, 525, 675]) {
+    villageRoadColliders.push({
+      minX: 480,
+      maxX: 630,
+      minZ: laneZ - 3,
+      maxZ: laneZ + 3,
+    });
+  }
   for (const [zMin, zMax] of houseZones) {
     for (let k = 0; k < 3; k += 1) {
       let x = 478 + rand() * 165;
       let z = zMin + rand() * (zMax - zMin);
+      let bw = 9 + rand() * 4.5;
+      let bd = 7 + rand() * 3;
+      let bh = 3.6 + rand() * 1.5;
+      let angle = rand() * Math.PI * 2;
       let attempts = 0;
-      while (
-        attempts < 12 &&
-        (Math.abs(x - 560) < 11 ||
-          Math.abs(z - 460) < 13 ||
-          housePositions.some((p) => Math.hypot(p.x - x, p.z - z) < 15))
-      ) {
+      const rotatedBounds = (): { minX: number; maxX: number; minZ: number; maxZ: number } => {
+        const cos = Math.abs(Math.cos(angle));
+        const sin = Math.abs(Math.sin(angle));
+        const halfW = (bw * cos + bd * sin) / 2;
+        const halfD = (bw * sin + bd * cos) / 2;
+        return { minX: x - halfW, maxX: x + halfW, minZ: z - halfD, maxZ: z + halfD };
+      };
+      const collides = (): boolean => {
+        const bounds = rotatedBounds();
+        if (Math.abs(z - 460) < 14) return true;
+        if (
+          villageRoadColliders.some((road) =>
+            overlapsAabb(
+              bounds.minX,
+              bounds.minZ,
+              bounds.maxX,
+              bounds.maxZ,
+              road,
+              2.5,
+            ),
+          )
+        ) {
+          return true;
+        }
+        return villageHouseColliders.some((house) =>
+          overlapsAabb(
+            bounds.minX,
+            bounds.minZ,
+            bounds.maxX,
+            bounds.maxZ,
+            house,
+            3,
+          ),
+        );
+      };
+      while (attempts < 14 && collides()) {
         x = 478 + rand() * 165;
         z = zMin + rand() * (zMax - zMin);
+        bw = 9 + rand() * 4.5;
+        bd = 7 + rand() * 3;
+        bh = 3.6 + rand() * 1.5;
+        angle = rand() * Math.PI * 2;
         attempts += 1;
       }
-      if (attempts >= 12) continue;
-      housePositions.push({ x, z });
+      if (attempts >= 14) continue;
+      const bounds = rotatedBounds();
+      villageHouseColliders.push({
+        minX: bounds.minX,
+        maxX: bounds.maxX,
+        minZ: bounds.minZ,
+        maxZ: bounds.maxZ,
+      });
       const house = new THREE.Group();
       house.name = 'village-house';
-      const bw = 9 + rand() * 4.5;
-      const bd = 7 + rand() * 3;
-      const bh = 3.6 + rand() * 1.5;
       const body = new THREE.Mesh(
         new THREE.BoxGeometry(bw, bh, bd),
         villageWallMaterial,
@@ -436,7 +514,7 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
       chimney.position.set(bw * 0.25, bh + 1.9, -bd * 0.22);
       house.add(body, roof, chimney);
       house.position.set(x, 0, z);
-      house.rotation.y = rand() * Math.PI * 2;
+      house.rotation.y = angle;
       house.traverse((child) => {
         if (child instanceof THREE.Mesh) {
           child.castShadow = true;
@@ -507,7 +585,6 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
     }
   }
 
-  const terrainColliders: CircleCollider[] = [];
   const hills: { x: number; z: number; radius: number; height: number }[] = [];
   const hillSpots: { x: number; z: number; minR: number; maxR: number }[] = [];
   for (const z of [65, 215, 365, 515, 665, 815]) {
@@ -522,35 +599,49 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
   }
   for (const spot of hillSpots) {
     const radius = spot.minR + rand() * (spot.maxR - spot.minR);
-    const height = 8 + rand() * 9;
+    const height = 3.5 + rand() * 2.5;
     hills.push({ x: spot.x, z: spot.z, radius, height });
   }
   for (const hill of hills) {
+    const domeGeometry = new THREE.PlaneGeometry(
+      hill.radius * 2,
+      hill.radius * 2,
+      24,
+      24,
+    );
+    domeGeometry.rotateX(-Math.PI / 2);
+    const domePositions = domeGeometry.attributes.position;
+    for (let i = 0; i < domePositions.count; i += 1) {
+      domePositions.setY(i, hillHeightAt(hill, domePositions.getX(i), domePositions.getZ(i)));
+    }
+    domeGeometry.computeVertexNormals();
     const mound = new THREE.Mesh(
-      new THREE.SphereGeometry(1, 16, 12),
+      domeGeometry,
       hillMaterial,
     );
-    mound.scale.set(hill.radius, hill.height, hill.radius);
-    mound.position.set(hill.x, hill.height * 0.82, hill.z);
+    mound.position.set(hill.x, 0, hill.z);
     mound.name = 'hill';
     mound.castShadow = true;
+    mound.receiveShadow = true;
     group.add(mound);
-    const rock = new THREE.Mesh(
-      new THREE.SphereGeometry(1, 10, 8),
-      hillRockMaterial,
+    const rampAngle = rand() * Math.PI * 2;
+    const rampLength = hill.radius * 0.96;
+    const rampPitch = Math.atan2(hill.height * 0.78, rampLength);
+    const ramp = new THREE.Mesh(
+      new THREE.BoxGeometry(5, 0.12, rampLength),
+      dirtMaterial,
     );
-    rock.scale.set(hill.radius * 0.22, hill.height * 0.28, hill.radius * 0.22);
-    rock.position.set(
-      hill.x + hill.radius * 0.28,
-      hill.height * 1.08,
-      hill.z + hill.radius * 0.18,
+    ramp.name = 'hill-ramp';
+    ramp.rotation.order = 'YXZ';
+    ramp.rotation.y = Math.PI / 2 - rampAngle;
+    ramp.rotation.x = rampPitch;
+    ramp.position.set(
+      hill.x + Math.cos(rampAngle) * (hill.radius - rampLength / 2),
+      hill.height * 0.36,
+      hill.z + Math.sin(rampAngle) * (hill.radius - rampLength / 2),
     );
-    group.add(rock);
-    terrainColliders.push({
-      x: hill.x,
-      z: hill.z,
-      radius: hill.radius * 0.55,
-    });
+    ramp.receiveShadow = true;
+    group.add(ramp);
   }
   for (const trailX of [740, 885]) {
     const trail = new THREE.Mesh(
@@ -645,8 +736,8 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
     () => [],
   );
   const buildingColliders: Aabb[] = [];
+  buildingColliders.push(...villageHouseColliders);
   const treeColliders: CircleCollider[] = [];
-  treeColliders.push(...terrainColliders);
   const inset = WORLD.BUILDING_INSET;
   for (let j = 0; j < N; j += 1) {
     for (let i = 0; i < N; i += 1) {
@@ -1221,8 +1312,14 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
     for (const side of cross > 0 ? [1, -1] : [-1, 1]) {
       const bx = a.x + nx * (side * RACE_CONFIG.BARRIER_OFFSET);
       const bz = a.z + nz * (side * RACE_CONFIG.BARRIER_OFFSET);
-      let start = 0;
-      let end = len;
+      const cornerGap =
+        WORLD.ROAD_WIDTH / 2 +
+        WORLD.SIDEWALK_WIDTH +
+        RACE_CONFIG.BARRIER_WIDTH / 2 +
+        RACE_CONFIG.BARRIER_EXTRA +
+        2;
+      let start = Math.min(cornerGap, len / 2 - 1);
+      let end = Math.max(len - cornerGap, len / 2 + 1);
       if (ci === 0 && side === 1) {
         const gapA = startGapMin - (a.x * ux + a.z * uz);
         const gapB = startGapMax - (a.x * ux + a.z * uz);
@@ -1289,15 +1386,17 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
       }
     };
     const mouthLen = WORLD.ROAD_WIDTH + WORLD.SIDEWALK_WIDTH * 2 + 2;
+    const mouthOffset =
+      WORLD.ROAD_WIDTH / 2 + WORLD.SIDEWALK_WIDTH + RACE_CONFIG.BARRIER_EXTRA + 1.5;
     const p = a;
     if (Math.abs(p.z - N * B) < 0.1 && p.x > B - 0.1 && p.x < N * B - 0.1) {
-      mouthBarrier(p.x, N * B - 10, 0, mouthLen);
+      mouthBarrier(p.x, N * B - mouthOffset, 0, mouthLen);
     } else if (Math.abs(p.x - N * B) < 0.1 && p.z > B - 0.1 && p.z < N * B - 0.1) {
-      mouthBarrier(N * B - 10, p.z, Math.PI / 2, mouthLen);
+      mouthBarrier(N * B - mouthOffset, p.z, Math.PI / 2, mouthLen);
     } else if (Math.abs(p.z) < 0.1 && p.x > B - 0.1 && p.x < N * B - 0.1) {
-      mouthBarrier(p.x, 10, 0, mouthLen);
+      mouthBarrier(p.x, mouthOffset, 0, mouthLen);
     } else if (Math.abs(p.x) < 0.1 && p.z > B - 0.1 && p.z < N * B - 0.1) {
-      mouthBarrier(10, p.z, Math.PI / 2, mouthLen);
+      mouthBarrier(mouthOffset, p.z, Math.PI / 2, mouthLen);
     }
   }
   if (barrierMatrices.length > 0) {
@@ -1399,7 +1498,7 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
   };
 
   const raceStartSlots: THREE.Vector3[] = [];
-  for (let k = 0; k < RACE_CONFIG.TOTAL_RACERS; k += 1) {
+  for (let k = 0; k < RACE_CONFIG.MAX_TOTAL_RACERS; k += 1) {
     const x = startI * B - 30 - k * 11;
     const z = MAP_SIZE - 3.5 - (k % 2 === 0 ? 0 : 7);
     raceStartSlots.push(at(x, z));
@@ -1414,6 +1513,14 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
     const t = (timeSec + offset) % WORLD.LIGHT_CYCLE;
     if (axis === 'x') return t < WORLD.LIGHT_GREEN;
     return t >= WORLD.LIGHT_YELLOW_START;
+  };
+
+  const getTerrainHeight = (x: number, z: number): number => {
+    let height = 0;
+    for (const hill of hills) {
+      height = Math.max(height, hillHeightAt(hill, x, z));
+    }
+    return height;
   };
 
   const city: City = {
@@ -1436,6 +1543,7 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
     updateSignals,
     updateWater,
     updateChunks,
+    getTerrainHeight,
   };
 
   scene.add(group);

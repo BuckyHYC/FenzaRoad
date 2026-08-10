@@ -45,6 +45,7 @@ export class RaceManager {
   playerIndex = 0;
   difficulty: Difficulty = 'normal';
   bestLapMs = Infinity;
+  totalLaps: number = RACE_CONFIG.TOTAL_LAPS;
 
   private lapStartMs = 0;
   private countdownElapsed = 0;
@@ -60,10 +61,15 @@ export class RaceManager {
     player: PlayerVehicle,
     aiVehicles: PlayerVehicle[],
     difficulty: Difficulty,
+    totalLaps: number,
     startPositions: THREE.Vector3[],
     startHeading: number,
   ): void {
     this.difficulty = difficulty;
+    this.totalLaps = Math.max(
+      RACE_CONFIG.MIN_LAPS,
+      Math.min(RACE_CONFIG.MAX_LAPS, Math.round(totalLaps)),
+    );
     this.phase = 'idle';
     this.countdown = RACE_CONFIG.COUNTDOWN_SECONDS;
     this.elapsedMs = 0;
@@ -147,7 +153,7 @@ export class RaceManager {
   debugFinish(): void {
     if (this.phase !== 'racing' && this.phase !== 'countdown') return;
     const player = this.racers[this.playerIndex];
-    player.lap = RACE_CONFIG.TOTAL_LAPS;
+    player.lap = this.totalLaps;
     player.checkpoint = this.checkpoints.length - 1;
     player.finished = true;
     player.finishTimeMs = this.elapsedMs;
@@ -227,7 +233,7 @@ export class RaceManager {
             bestLapMs: this.bestLapMs,
           });
         }
-        if (racer.lap >= RACE_CONFIG.TOTAL_LAPS) {
+        if (racer.lap >= this.totalLaps) {
           racer.finished = true;
           racer.finishTimeMs = nowMs - this.raceStartMs;
           if (racer === this.racers[this.playerIndex]) {

@@ -528,7 +528,11 @@ export class Game {
     this.clearAiVehicles();
 
     const available = VEHICLES.filter((v) => v.id !== this.player.spec.id);
-    for (let i = 0; i < RACE_CONFIG.TOTAL_RACERS - 1; i += 1) {
+    const totalRacers = Math.max(
+      2,
+      Math.min(RACE_CONFIG.MAX_TOTAL_RACERS, gameState.race.totalRacers),
+    );
+    for (let i = 0; i < totalRacers - 1; i += 1) {
       const spec = available[i % available.length];
       this.aiVehicles.push(this.createPlayer(spec.id, spec.color, false, false));
     }
@@ -536,6 +540,7 @@ export class Game {
       this.player,
       this.aiVehicles,
       difficulty,
+      gameState.race.totalLaps,
       this.city.raceStartSlots,
       this.city.raceStartHeading,
     );
@@ -692,8 +697,8 @@ export class Game {
       this.city.updateChunks(this.player.x, this.player.z);
     }
     if (this.city.revision !== revision) {
-      this.traffic.clear();
-      this.pedestrians.clear();
+      this.traffic.rebindCity();
+      this.pedestrians.rebindCity();
     }
 
     if (gameState.paused) {
@@ -730,6 +735,7 @@ export class Game {
       steer: input.moveX,
       handbrake: input.handbrake,
     });
+    this.player.groundY = this.city.getTerrainHeight(this.player.x, this.player.z);
     this.traffic.update(dt, this.timeSec, this.player.x, this.player.z);
     const colliders: PedestrianCollider[] = [
       {
@@ -779,6 +785,7 @@ export class Game {
         steer: input.moveX,
         handbrake: input.handbrake,
       });
+      this.player.groundY = this.city.getTerrainHeight(this.player.x, this.player.z);
       this.resolveWorldCollisions(this.player);
       for (const racer of this.race.racers) {
         this.resolveWorldCollisions(racer.vehicle);
@@ -807,6 +814,7 @@ export class Game {
       steer: input.moveX,
       handbrake: input.handbrake,
     });
+    this.player.groundY = this.city.getTerrainHeight(this.player.x, this.player.z);
     this.resolveWorldCollisions(this.player);
     this.resolveVehicleCollisions();
     this.clampToBounds(this.player);
@@ -892,17 +900,18 @@ export class Game {
   private updateChaseCamera(dt: number): void {
     const fx = Math.sin(this.player.heading);
     const fz = Math.cos(this.player.heading);
+    const groundY = this.player.groundY;
     let desiredX: number;
     let desiredY: number;
     let desiredZ: number;
     if (this.cameraMode === 'chase') {
       this.setCameraFov(CAMERA_CONFIG.FOV);
       desiredX = this.player.x - fx * CAMERA_CONFIG.CHASE_DISTANCE;
-      desiredY = CAMERA_CONFIG.CHASE_HEIGHT;
+      desiredY = CAMERA_CONFIG.CHASE_HEIGHT + groundY;
       desiredZ = this.player.z - fz * CAMERA_CONFIG.CHASE_DISTANCE;
       this.cameraLook.set(
         this.player.x + fx * CAMERA_CONFIG.LOOK_AHEAD,
-        CAMERA_CONFIG.LOOK_HEIGHT,
+        CAMERA_CONFIG.LOOK_HEIGHT + groundY,
         this.player.z + fz * CAMERA_CONFIG.LOOK_AHEAD,
       );
     } else {
@@ -914,7 +923,8 @@ export class Game {
         fx * CAMERA_CONFIG.INTERIOR_FORWARD +
         rx * CAMERA_CONFIG.INTERIOR_LATERAL;
       desiredY =
-        this.player.spec.height * CAMERA_CONFIG.INTERIOR_EYE_HEIGHT_RATIO;
+        this.player.spec.height * CAMERA_CONFIG.INTERIOR_EYE_HEIGHT_RATIO +
+        groundY;
       desiredZ =
         this.player.z +
         fz * CAMERA_CONFIG.INTERIOR_FORWARD +
@@ -922,7 +932,7 @@ export class Game {
       this.cameraPosition.set(desiredX, desiredY, desiredZ);
       this.cameraLook.set(
         this.player.x + fx * 20,
-        1.12,
+        1.12 + groundY,
         this.player.z + fz * 20,
       );
       this.camera.position.copy(this.cameraPosition);
@@ -1404,7 +1414,7 @@ export class Game {
     if (gameState.mode !== 'race' || this.race.phase !== 'racing') return;
     const racer = this.race.racers[this.race.playerIndex];
     racer.checkpoint = this.city.raceCheckpoints.length - 2;
-    racer.lap = Math.min(racer.lap + 1, RACE_CONFIG.TOTAL_LAPS - 1);
+    racer.lap = Math.min(racer.lap + 1, this.race.totalLaps - 1);
   }
 
   private debugTeleport(x: number, z: number): void {

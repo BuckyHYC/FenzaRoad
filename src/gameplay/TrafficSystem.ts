@@ -55,6 +55,71 @@ export class TrafficSystem {
     this.clear();
   }
 
+  rebindCity(): void {
+    for (let i = this.npcs.length - 1; i >= 0; i -= 1) {
+      if (!this.rebindNpc(this.npcs[i])) {
+        this.scene.remove(this.npcs[i].vehicle.visuals.group);
+        this.npcs.splice(i, 1);
+      }
+    }
+  }
+
+  private rebindNpc(npc: Npc): boolean {
+    const x = npc.vehicle.x;
+    const z = npc.vehicle.z;
+    let bestDist = Infinity;
+    let best:
+      | {
+          edgeId: number;
+          fromNode: number;
+          toNode: number;
+          t: number;
+          laneOffset: number;
+        }
+      | null = null;
+    for (const edge of this.city.edges) {
+      const a = this.city.intersections[edge.from];
+      const b = this.city.intersections[edge.to];
+      const len = edge.length;
+      const ux = (b.x - a.x) / len;
+      const uz = (b.z - a.z) / len;
+      const t = Math.max(
+        0,
+        Math.min(1, ((x - a.x) * ux + (z - a.z) * uz) / len),
+      );
+      const px = a.x + ux * t * len;
+      const pz = a.z + uz * t * len;
+      const lateral = -(x - px) * uz + (z - pz) * ux;
+      const dist = Math.hypot(x - px, z - pz);
+      if (dist < bestDist && Math.abs(lateral) <= 8) {
+        bestDist = dist;
+        best = {
+          edgeId: edge.id,
+          fromNode: edge.from,
+          toNode: edge.to,
+          t,
+          laneOffset: lateral,
+        };
+      }
+    }
+    if (!best || bestDist > 12) return false;
+    const lane =
+      Math.abs(best.laneOffset) < 4
+        ? Math.sign(best.laneOffset || 1) * 2.75
+        : Math.sign(best.laneOffset) * 5.75;
+    npc.edgeId = best.edgeId;
+    npc.fromNode = best.fromNode;
+    npc.toNode = best.toNode;
+    npc.t = best.t;
+    npc.laneOffset = lane;
+    npc.turnProgress = -1;
+    npc.turnDuration = 0;
+    npc.nextEdgeId = 0;
+    npc.nextToNode = 0;
+    npc.nextLaneOffset = 0;
+    return true;
+  }
+
   clear(): void {
     for (const npc of this.npcs) {
       this.scene.remove(npc.vehicle.visuals.group);

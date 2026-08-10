@@ -85,6 +85,7 @@ export class UIManager {
   private readonly statBars = new Map<string, HTMLDivElement>();
   private readonly minimap: Minimap;
   private readonly touchControls: TouchControls;
+  private raceMetaChip: HTMLSpanElement | null = null;
   private selectedGarageVehicleId = gameState.saved.selectedVehicleId;
   private selectedGarageColor = gameState.saved.selectedColor;
   private garageSlideDir: 1 | -1 = 1;
@@ -218,6 +219,7 @@ export class UIManager {
   showMainMenu(): void {
     this.hideAll();
     this.menuOverlay.classList.remove('hidden');
+    this.refreshRaceMenuOptions();
     this.touchControls.hide();
   }
 
@@ -233,6 +235,7 @@ export class UIManager {
   showRaceMenu(): void {
     this.hideAll();
     this.raceMenuOverlay.classList.remove('hidden');
+    this.refreshRaceMenuOptions();
     this.touchControls.hide();
   }
 
@@ -333,7 +336,20 @@ export class UIManager {
 
   showPause(): void {
     this.pauseOverlay.classList.remove('hidden');
+    this.refreshQualityButtons();
+    this.syncPauseSliders();
     this.touchControls.hide();
+  }
+
+  private syncPauseSliders(): void {
+    const bgm = this.pauseOverlay.querySelector('#pause-bgm-volume');
+    const sfx = this.pauseOverlay.querySelector('#pause-sfx-volume');
+    if (bgm instanceof HTMLInputElement) {
+      bgm.value = String(gameState.settings.bgmVolume);
+    }
+    if (sfx instanceof HTMLInputElement) {
+      sfx.value = String(gameState.settings.sfxVolume);
+    }
   }
 
   hidePause(): void {
@@ -436,6 +452,41 @@ export class UIManager {
     }
   }
 
+  setRaceOpponents(count: number): void {
+    gameState.race.totalRacers =
+      Math.max(
+        RACE_CONFIG.MIN_OPPONENTS,
+        Math.min(RACE_CONFIG.MAX_OPPONENTS, Math.round(count)),
+      ) + 1;
+    this.refreshRaceMenuOptions();
+  }
+
+  setRaceLaps(laps: number): void {
+    gameState.race.totalLaps = Math.max(
+      RACE_CONFIG.MIN_LAPS,
+      Math.min(RACE_CONFIG.MAX_LAPS, Math.round(laps)),
+    );
+    this.refreshRaceMenuOptions();
+  }
+
+  private refreshRaceMenuOptions(): void {
+    const meta = this.raceMenuOverlay.querySelector('#race-menu-meta');
+    if (meta instanceof HTMLElement) {
+      meta.textContent = `城市环路 · ${gameState.race.totalLaps} 圈 · ${gameState.race.totalRacers} 台车`;
+    }
+    const opponentsValue = this.raceMenuOverlay.querySelector('#race-opponents');
+    if (opponentsValue instanceof HTMLElement) {
+      opponentsValue.textContent = `${gameState.race.totalRacers - 1} 名`;
+    }
+    const lapsValue = this.raceMenuOverlay.querySelector('#race-laps');
+    if (lapsValue instanceof HTMLElement) {
+      lapsValue.textContent = `${gameState.race.totalLaps} 圈`;
+    }
+    if (this.raceMetaChip) {
+      this.raceMetaChip.textContent = `${gameState.race.totalLaps} 圈竞速`;
+    }
+  }
+
   getRacePhase(): RacePhase {
     return gameState.race.phase;
   }
@@ -459,7 +510,10 @@ export class UIManager {
     mute.id = 'menu-mute';
     footer.appendChild(mute);
     footer.appendChild(el('span', 'menu-chip', `${VEHICLES.length} 台座驾`));
-    footer.appendChild(el('span', 'menu-chip', `${RACE_CONFIG.TOTAL_LAPS} 圈竞速`));
+    const raceChip = el('span', 'menu-chip', '');
+    raceChip.id = 'menu-race-chip';
+    footer.appendChild(raceChip);
+    this.raceMetaChip = raceChip;
     panel.appendChild(footer);
     overlay.appendChild(panel);
     return overlay;
@@ -648,7 +702,9 @@ export class UIManager {
     const overlay = el('div', 'overlay menu-overlay') as HTMLDivElement;
     const panel = el('div', 'menu-panel') as HTMLDivElement;
     panel.appendChild(el('h1', 'menu-heading', '竞速模式'));
-    panel.appendChild(el('p', 'menu-description', `城市环路 · ${RACE_CONFIG.TOTAL_LAPS} 圈 · ${RACE_CONFIG.TOTAL_RACERS} 台车`));
+    const meta = el('p', 'menu-description') as HTMLParagraphElement;
+    meta.id = 'race-menu-meta';
+    panel.appendChild(meta);
 
     const diffRow = el('div', 'difficulty-row') as HTMLDivElement;
     const difficulties: { id: Difficulty; label: string }[] = [
@@ -662,6 +718,41 @@ export class UIManager {
       diffRow.appendChild(node);
     }
     panel.appendChild(diffRow);
+
+    const opponentsRow = el('div', 'race-option-row') as HTMLDivElement;
+    opponentsRow.appendChild(el('span', 'settings-label', '对手数量'));
+    const opponentsStepper = el('div', 'stepper') as HTMLDivElement;
+    const opponentsDec = button('seg-btn stepper-btn', '−', () =>
+      this.setRaceOpponents(gameState.race.totalRacers - 2),
+    );
+    opponentsDec.dataset.raceOpponents = 'dec';
+    const opponentsValue = el('span', 'stepper-value') as HTMLSpanElement;
+    opponentsValue.id = 'race-opponents';
+    const opponentsInc = button('seg-btn stepper-btn', '+', () =>
+      this.setRaceOpponents(gameState.race.totalRacers),
+    );
+    opponentsInc.dataset.raceOpponents = 'inc';
+    opponentsStepper.append(opponentsDec, opponentsValue, opponentsInc);
+    opponentsRow.appendChild(opponentsStepper);
+    panel.appendChild(opponentsRow);
+
+    const lapsRow = el('div', 'race-option-row') as HTMLDivElement;
+    lapsRow.appendChild(el('span', 'settings-label', '圈数'));
+    const lapsStepper = el('div', 'stepper') as HTMLDivElement;
+    const lapsDec = button('seg-btn stepper-btn', '−', () =>
+      this.setRaceLaps(gameState.race.totalLaps - 1),
+    );
+    lapsDec.dataset.raceLaps = 'dec';
+    const lapsValue = el('span', 'stepper-value') as HTMLSpanElement;
+    lapsValue.id = 'race-laps';
+    const lapsInc = button('seg-btn stepper-btn', '+', () =>
+      this.setRaceLaps(gameState.race.totalLaps + 1),
+    );
+    lapsInc.dataset.raceLaps = 'inc';
+    lapsStepper.append(lapsDec, lapsValue, lapsInc);
+    lapsRow.appendChild(lapsStepper);
+    panel.appendChild(lapsRow);
+
     panel.appendChild(button('menu-btn menu-btn-primary', '开始比赛', () => this.game.startRace()));
     panel.appendChild(button('menu-btn menu-btn-secondary', '返回', () => this.game.showMenu()));
     overlay.appendChild(panel);
@@ -829,6 +920,57 @@ export class UIManager {
       densityRow.appendChild(node);
     }
     panel.appendChild(densityRow);
+
+    const qualityRow = el('div', 'settings-row settings-row-column') as HTMLDivElement;
+    qualityRow.appendChild(el('span', 'settings-label', '画质'));
+    const qualitySeg = el('div', 'difficulty-row') as HTMLDivElement;
+    const qualities: { id: QualityPreset; label: string }[] = [
+      { id: 'auto', label: '自动' },
+      { id: 'high', label: '高' },
+      { id: 'medium', label: '中' },
+      { id: 'low', label: '低' },
+    ];
+    for (const item of qualities) {
+      const node = button('seg-btn', item.label, () => {
+        this.game.setQuality(item.id);
+        this.refreshQualityButtons();
+      });
+      node.dataset.quality = item.id;
+      qualitySeg.appendChild(node);
+    }
+    qualityRow.appendChild(qualitySeg);
+    panel.appendChild(qualityRow);
+
+    const bgmRow = el('div', 'settings-row settings-row-column') as HTMLDivElement;
+    bgmRow.appendChild(el('span', 'settings-label', '背景音乐'));
+    const bgmSlider = el('input', 'settings-slider') as HTMLInputElement;
+    bgmSlider.type = 'range';
+    bgmSlider.min = '0';
+    bgmSlider.max = '1';
+    bgmSlider.step = '0.05';
+    bgmSlider.value = String(gameState.settings.bgmVolume);
+    bgmSlider.id = 'pause-bgm-volume';
+    bgmSlider.addEventListener('input', () => {
+      this.game.setBgmVolume(Number(bgmSlider.value));
+    });
+    bgmRow.appendChild(bgmSlider);
+    panel.appendChild(bgmRow);
+
+    const sfxRow = el('div', 'settings-row settings-row-column') as HTMLDivElement;
+    sfxRow.appendChild(el('span', 'settings-label', '游戏音量'));
+    const sfxSlider = el('input', 'settings-slider') as HTMLInputElement;
+    sfxSlider.type = 'range';
+    sfxSlider.min = '0';
+    sfxSlider.max = '1';
+    sfxSlider.step = '0.05';
+    sfxSlider.value = String(gameState.settings.sfxVolume);
+    sfxSlider.id = 'pause-sfx-volume';
+    sfxSlider.addEventListener('input', () => {
+      this.game.setSfxVolume(Number(sfxSlider.value));
+    });
+    sfxRow.appendChild(sfxSlider);
+    panel.appendChild(sfxRow);
+
     panel.appendChild(button('menu-btn menu-btn-primary', '继续', () => this.game.togglePause()));
     panel.appendChild(button('menu-btn', '重新开始', () => this.game.restartCurrent()));
     panel.appendChild(button('menu-btn menu-btn-secondary', '返回主菜单', () => this.game.showMenu()));

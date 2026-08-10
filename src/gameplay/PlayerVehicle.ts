@@ -19,6 +19,7 @@ export class PlayerVehicle {
 
   x = 0;
   z = 0;
+  groundY = 0;
   heading = 0;
   speed = 0;
   lateral = 0;
@@ -49,6 +50,7 @@ export class PlayerVehicle {
   reset(x: number, z: number, heading: number): void {
     this.x = x;
     this.z = z;
+    this.groundY = 0;
     this.heading = heading;
     this.speed = 0;
     this.lateral = 0;
@@ -65,6 +67,7 @@ export class PlayerVehicle {
   setKinematic(x: number, z: number, heading: number, speedMs: number): void {
     this.x = x;
     this.z = z;
+    this.groundY = 0;
     this.heading = heading;
     this.speed = speedMs;
     this.lateral = 0;
@@ -263,7 +266,7 @@ export class PlayerVehicle {
 
   private syncVisuals(): void {
     const group = this.visuals.group;
-    group.position.set(this.x, 0, this.z);
+    group.position.set(this.x, this.groundY, this.z);
     group.rotation.y = this.heading + this.driftPose * this.steerAngle * 2.6;
     group.rotation.z = this.driftPose * this.steerAngle * 0.3;
     this.visuals.frontLeftPivot.rotation.y = this.steerAngle;

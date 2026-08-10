@@ -661,6 +661,7 @@ export function buildEndlessWorld(scene: THREE.Scene): City {
     updateSignals: (_timeSec: number): void => undefined,
     updateWater,
     updateChunks,
+    getTerrainHeight: (): number => 0,
   };
 
   updateChunks(WORLD.SPAWN_X, WORLD.SPAWN_Z);

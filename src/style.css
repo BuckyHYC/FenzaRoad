@@ -223,6 +223,37 @@ button,
   cursor: pointer;
 }
 
+.race-option-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stepper-btn {
+  width: 38px;
+  height: 34px;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.stepper-value {
+  min-width: 52px;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+
 .seg-btn-wide {
   width: 128px;
 }

@@ -127,6 +127,7 @@ const partGeometryCache = new Map<string, THREE.BufferGeometry>();
 const staticGeometryCache = new Map<string, StaticGeometrySet>();
 let vehicleEnvMap: THREE.Texture | null = null;
 const vehicleGltfCache = new Map<string, Promise<THREE.Group>>();
+const VEHICLE_MODEL_CACHE_BUST = `v=${Date.now()}`;
 
 export const VEHICLE_PART_NAMES = [
   'BodyMain',
@@ -136,12 +137,16 @@ export const VEHICLE_PART_NAMES = [
   'RearDoor_L',
   'RearDoor_R',
   'TrunkLid',
+  'FrontBumper',
+  'RearBumper',
   'Mirror_L',
   'Mirror_R',
+  'Grille',
   'Headlight_L',
   'Headlight_R',
   'Taillight_L',
   'Taillight_R',
+  'Spoiler',
   'Windows',
   'Wheel_LF',
   'Wheel_RF',
@@ -158,12 +163,19 @@ function loadVehicleScene(url: string): Promise<THREE.Group> {
         url,
         (gltf) => resolve(gltf.scene),
         undefined,
-        (error) => reject(error),
+        (error) => {
+          vehicleGltfCache.delete(url);
+          reject(error);
+        },
       );
     });
     vehicleGltfCache.set(url, pending);
   }
   return pending;
+}
+
+export function vehicleModelUrl(bodyStyle: string): string {
+  return `/models/vehicles/${bodyStyle}.glb?${VEHICLE_MODEL_CACHE_BUST}`;
 }
 
 export async function attachExternalVehicleModel(
@@ -172,7 +184,15 @@ export async function attachExternalVehicleModel(
   spec: VehicleSpec,
 ): Promise<void> {
   try {
+    if (visuals.modelRoot) {
+      visuals.group.remove(visuals.modelRoot);
+      visuals.modelRoot = null;
+    }
     const source = await loadVehicleScene(url);
+    if (visuals.modelRoot) {
+      visuals.group.remove(visuals.modelRoot);
+      visuals.modelRoot = null;
+    }
     const root = source.clone(true);
     root.traverse((node) => {
       if (node instanceof THREE.Mesh) {
@@ -520,15 +540,6 @@ function buildStaticGeometry(
         },
       );
       break;
-    case 'coupeWing':
-      parts.push({
-        geo: new THREE.BoxGeometry(W * 0.9, 0.05, 0.24),
-        x: 0,
-        y: bodyTop + 0.14,
-        z: -L / 2 + 0.18,
-        key: 'dark',
-      });
-      break;
     case 'none':
       break;
   }
@@ -741,15 +752,6 @@ export function buildVehicle(
       skirt.castShadow = castShadows;
       bodyMain.add(skirt);
     }
-    const bumperGeo = geometry('body-bumper', () => new THREE.BoxGeometry(1, 1, 1));
-    for (const z of [L / 2 - 0.05, -L / 2 + 0.05]) {
-      const bumper = new THREE.Mesh(bumperGeo, bodyMat);
-      bumper.name = 'BodyMain-bumper';
-      bumper.scale.set(W * 0.96, 0.16, 0.1);
-      bumper.position.set(0, wheelR - 0.03, z);
-      bumper.castShadow = castShadows;
-      bodyMain.add(bumper);
-    }
   }
 
   const glassMesh = attachStatic('Windows', statics.glass, glassMat);
@@ -771,12 +773,16 @@ export function buildVehicle(
   const rearDoorL = createPart('RearDoor_L');
   const rearDoorR = createPart('RearDoor_R');
   const trunkLid = createPart('TrunkLid');
+  const frontBumper = createPart('FrontBumper');
+  const rearBumper = createPart('RearBumper');
   const mirrorL = createPart('Mirror_L');
   const mirrorR = createPart('Mirror_R');
+  const grille = createPart('Grille');
   const headlightL = createPart('Headlight_L');
   const headlightR = createPart('Headlight_R');
   const taillightL = createPart('Taillight_L');
   const taillightR = createPart('Taillight_R');
+  const spoiler = createPart('Spoiler');
 
   if (highQuality) {
     const hoodLen = Math.max(0.75, L / 2 - cabinFront - 0.08);
@@ -818,6 +824,96 @@ export function buildVehicle(
     trunkMesh.position.set(0, bodyTop - 0.014, -L / 2 + L * 0.115);
     trunkMesh.castShadow = castShadows;
     trunkLid.add(trunkMesh);
+
+    const bumperMainGeo = geometry(
+      'part-bumper-main',
+      () => new THREE.BoxGeometry(1, 1, 1),
+    );
+    const bumperLipGeo = geometry(
+      'part-bumper-lip',
+      () => new THREE.BoxGeometry(1, 1, 1),
+    );
+    for (const [part, isFront] of [
+      [frontBumper, true],
+      [rearBumper, false],
+    ] as const) {
+      const main = new THREE.Mesh(bumperMainGeo, bodyMat);
+      main.name = `${part.name}-main`;
+      main.scale.set(W * 0.96, 0.16, 0.12);
+      main.position.set(
+        0,
+        wheelR - 0.02,
+        (isFront ? 1 : -1) * (L / 2 - 0.08),
+      );
+      main.castShadow = castShadows;
+      const lip = new THREE.Mesh(bumperLipGeo, darkMat);
+      lip.name = `${part.name}-lip`;
+      lip.scale.set(W * 0.82, 0.12, 0.08);
+      lip.position.set(
+        0,
+        wheelR - 0.13,
+        (isFront ? 1 : -1) * (L / 2 - 0.06),
+      );
+      lip.castShadow = castShadows;
+      part.add(main, lip);
+    }
+
+    const grilleFrame = new THREE.Mesh(
+      geometry('part-grille-frame', () => new THREE.BoxGeometry(1, 1, 1)),
+      darkMat,
+    );
+    grilleFrame.name = 'Grille-frame';
+    grilleFrame.scale.set(W * 0.42, 0.12, 0.05);
+    grilleFrame.position.set(0, wheelR + 0.42, L / 2 + 0.01);
+    grilleFrame.castShadow = castShadows;
+    grille.add(grilleFrame);
+    const grilleSlatGeo = geometry(
+      'part-grille-slat',
+      () => new THREE.BoxGeometry(1, 1, 1),
+    );
+    for (let s = 0; s < 3; s += 1) {
+      const slat = new THREE.Mesh(grilleSlatGeo, darkMat);
+      slat.name = 'Grille-slat';
+      slat.scale.set(W * 0.36, 0.018, 0.045);
+      slat.position.set(0, wheelR + 0.4 + s * 0.028, L / 2 + 0.015);
+      slat.castShadow = false;
+      grille.add(slat);
+    }
+
+    const isCoupe = spec.bodyStyle === 'coupe';
+    if (isCoupe) {
+      const wing = new THREE.Mesh(
+        geometry('part-spoiler-wing', () => new THREE.BoxGeometry(1, 1, 1)),
+        darkMat,
+      );
+      wing.name = 'Spoiler-wing';
+      wing.scale.set(W * 0.94, 0.05, 0.3);
+      wing.position.set(0, bodyTop + 0.2, -L / 2 + 0.1);
+      wing.castShadow = castShadows;
+      const strutGeo = geometry(
+        'part-spoiler-strut',
+        () => new THREE.BoxGeometry(1, 1, 1),
+      );
+      for (const side of [-1, 1]) {
+        const strut = new THREE.Mesh(strutGeo, darkMat);
+        strut.name = 'Spoiler-strut';
+        strut.scale.set(0.05, 0.18, 0.12);
+        strut.position.set(side * (W * 0.36), bodyTop + 0.09, -L / 2 + 0.1);
+        strut.castShadow = castShadows;
+        spoiler.add(strut);
+      }
+      spoiler.add(wing);
+    } else {
+      const lip = new THREE.Mesh(
+        geometry('part-spoiler-lip', () => new THREE.BoxGeometry(1, 1, 1)),
+        darkMat,
+      );
+      lip.name = 'Spoiler-lip';
+      lip.scale.set(W * 0.84, 0.035, 0.1);
+      lip.position.set(0, bodyTop + 0.08, -L / 2 + 0.04);
+      lip.castShadow = castShadows;
+      spoiler.add(lip);
+    }
 
     const mirrorArmGeo = geometry(
       'part-mirror-arm',

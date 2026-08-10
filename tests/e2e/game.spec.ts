@@ -244,28 +244,37 @@ test('npc vehicles turn smoothly through intersections', async ({ page }) => {
       x: npc.vehicle.x,
       z: npc.vehicle.z,
     };
-    return { turning, before };
+    return { turning, before, id: npc.vehicle.visuals.group.uuid };
   });
   await page.waitForFunction(
-    ({ x, z }: { x: number; z: number }) => {
+    ({ x, z, id }: { x: number; z: number; id: string }) => {
       const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
         traffic: {
-          npcs: Array<{ vehicle: { x: number; z: number } }>;
+          npcs: Array<{
+            vehicle: { x: number; z: number; visuals: { group: { uuid: string } } };
+          }>;
         };
       };
-      const npc = game.traffic.npcs[0];
+      const npc = game.traffic.npcs.find(
+        (item) => item.vehicle.visuals.group.uuid === id,
+      );
       return npc && Math.hypot(npc.vehicle.x - x, npc.vehicle.z - z) > 0.5;
     },
-    { x: setup.before.x, z: setup.before.z },
+    { x: setup.before.x, z: setup.before.z, id: setup.id },
     { timeout: 5000 },
   );
-  const result = await page.evaluate(({ before }) => {
+  const result = await page.evaluate(({ before, id }) => {
     const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
       traffic: {
-        npcs: Array<{ vehicle: { heading: number; x: number; z: number } }>;
+        npcs: Array<{
+          vehicle: { heading: number; x: number; z: number; visuals: { group: { uuid: string } } };
+        }>;
       };
     };
-    const npc = game.traffic.npcs[0];
+    const npc = game.traffic.npcs.find(
+      (item) => item.vehicle.visuals.group.uuid === id,
+    );
+    if (!npc) throw new Error('tracked NPC disappeared');
     const after = {
       heading: npc.vehicle.heading,
       x: npc.vehicle.x,
@@ -275,7 +284,7 @@ test('npc vehicles turn smoothly through intersections', async ({ page }) => {
       headingDelta: Math.abs(after.heading - before.heading),
       moved: Math.hypot(after.x - before.x, after.z - before.z),
     };
-  }, { before: setup.before });
+  }, { before: setup.before, id: setup.id });
   expect(setup.turning).toBe(true);
   expect(result.headingDelta).toBeLessThan(1.2);
   expect(result.moved).toBeGreaterThan(0.5);
@@ -505,6 +514,75 @@ test('race countdown, debug finish and restart', async ({ page }) => {
   await expect(page.locator('#result-title')).toBeVisible();
 });
 
+test('race menu selects opponents and laps before starting', async ({ page }) => {
+  await boot(page);
+  await page.getByRole('button', { name: '竞速模式' }).click();
+  await expect(page.locator('#race-opponents')).toHaveText('3 名');
+  await expect(page.locator('#race-laps')).toHaveText('3 圈');
+  await page.locator('[data-race-opponents="inc"]').click();
+  await page.locator('[data-race-opponents="inc"]').click();
+  await page.locator('[data-race-opponents="inc"]').click();
+  await page.locator('[data-race-opponents="inc"]').click();
+  await page.locator('[data-race-laps="inc"]').click();
+  await page.locator('[data-race-laps="inc"]').click();
+  await expect(page.locator('#race-opponents')).toHaveText('7 名');
+  await expect(page.locator('#race-laps')).toHaveText('5 圈');
+  await page.getByRole('button', { name: '开始比赛' }).click();
+  await expect(page.locator('#hud-lap')).toHaveText('0/5');
+  const state = await page.evaluate(() => {
+    const g = window as unknown as GameWindow;
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      race: { racers: unknown[]; totalLaps: number };
+    };
+    return {
+      totalRacers: g.__GAME_STATE__.race.totalRacers,
+      totalLaps: g.__GAME_STATE__.race.totalLaps,
+      racers: game.race.racers.length,
+      raceTotalLaps: game.race.totalLaps,
+    };
+  });
+  expect(state.totalRacers).toBe(8);
+  expect(state.totalLaps).toBe(5);
+  expect(state.racers).toBe(8);
+  expect(state.raceTotalLaps).toBe(5);
+});
+
+test('race barriers stay off the perimeter race road', async ({ page }) => {
+  await boot(page);
+  const result = await page.evaluate(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      city: {
+        raceBarriers: {
+          minX: number;
+          maxX: number;
+          minZ: number;
+          maxZ: number;
+        }[];
+      };
+    };
+    const roadRects = [
+      { minX: 0, maxX: 1200, minZ: 1192, maxZ: 1208 },
+      { minX: 1192, maxX: 1208, minZ: 0, maxZ: 1200 },
+      { minX: 0, maxX: 1200, minZ: -8, maxZ: 8 },
+      { minX: -8, maxX: 8, minZ: 0, maxZ: 1200 },
+    ];
+    const overlaps = (
+      a: { minX: number; maxX: number; minZ: number; maxZ: number },
+      b: { minX: number; maxX: number; minZ: number; maxZ: number },
+    ): boolean =>
+      a.minX < b.maxX &&
+      a.maxX > b.minX &&
+      a.minZ < b.maxZ &&
+      a.maxZ > b.minZ;
+    const blocked = game.city.raceBarriers.filter((barrier) =>
+      roadRects.some((road) => overlaps(barrier, road)),
+    ).length;
+    return { count: game.city.raceBarriers.length, blocked };
+  });
+  expect(result.count).toBeGreaterThan(0);
+  expect(result.blocked).toBe(0);
+});
+
 test('desktop visual and FPS smoke', async ({ page }) => {
   await boot(page);
   fs.mkdirSync('test-results', { recursive: true });
@@ -614,15 +692,12 @@ test('mobile touch controls accept simultaneous pointers', async ({ page }) => {
       }),
     );
   }, rects);
-  await page.waitForTimeout(120);
-  const after = await page.evaluate(() => {
+  await page.waitForFunction(() => {
     const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
       input: { moveX: number; moveZ: number };
     };
-    return { moveX: game.input.moveX, moveZ: game.input.moveZ };
-  });
-  expect(after.moveX).toBe(0);
-  expect(after.moveZ).toBe(0);
+    return game.input.moveX === 0 && game.input.moveZ === 0;
+  }, { timeout: 3000 });
 });
 
 test('map splits into rectangular zones and sun lights from an offset', async ({ page }) => {
@@ -721,6 +796,184 @@ test('map splits into rectangular zones and sun lights from an offset', async ({
   expect(result.shadowSize).toBeGreaterThanOrEqual(0);
 });
 
+test('village houses avoid roads and have collision volume', async ({ page }) => {
+  await boot(page);
+  const result = await page.evaluate(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      city: {
+        buildingColliders: {
+          minX: number;
+          maxX: number;
+          minZ: number;
+          maxZ: number;
+        }[];
+        group: {
+          traverse: (fn: (obj: unknown) => void) => void;
+        };
+      };
+    };
+    const roadRects = [
+      { minX: 556, maxX: 564, minZ: 30, maxZ: 1170 },
+      { minX: 480, maxX: 630, minZ: 222, maxZ: 228 },
+      { minX: 480, maxX: 630, minZ: 372, maxZ: 378 },
+      { minX: 480, maxX: 630, minZ: 522, maxZ: 528 },
+      { minX: 480, maxX: 630, minZ: 672, maxZ: 678 },
+    ];
+    const overlaps = (
+      a: { minX: number; maxX: number; minZ: number; maxZ: number },
+      b: { minX: number; maxX: number; minZ: number; maxZ: number },
+      margin = 0,
+    ): boolean =>
+      a.minX < b.maxX + margin &&
+      a.maxX > b.minX - margin &&
+      a.minZ < b.maxZ + margin &&
+      a.maxZ > b.minZ - margin;
+    let houses = 0;
+    let blocked = 0;
+    game.city.group.traverse((raw) => {
+      const obj = raw as {
+        name?: string;
+        position?: { x: number; z: number };
+      };
+      if (obj.name !== 'village-house' || !obj.position) return;
+      houses += 1;
+      const collider = game.city.buildingColliders.find(
+        (c) =>
+          Math.hypot(
+            (c.minX + c.maxX) / 2 - obj.position.x,
+            (c.minZ + c.maxZ) / 2 - obj.position.z,
+          ) < 0.5,
+      );
+      if (!collider) {
+        blocked += 1;
+        return;
+      }
+      if (roadRects.some((road) => overlaps(collider, road, 2))) blocked += 1;
+    });
+    return { houses, blocked };
+  });
+  expect(result.houses).toBeGreaterThan(10);
+  expect(result.blocked).toBe(0);
+});
+
+test('hills are driveable with terrain height and ramp access', async ({ page }) => {
+  await boot(page);
+  const hill = await page.evaluate(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      city: {
+        treeColliders: { x: number; z: number; radius: number }[];
+        getTerrainHeight: (x: number, z: number) => number;
+        group: {
+          traverse: (fn: (obj: unknown) => void) => void;
+        };
+      };
+    };
+    const hills: { x: number; z: number }[] = [];
+    let ramps = 0;
+    game.city.group.traverse((raw) => {
+      const obj = raw as {
+        name?: string;
+        position?: { x: number; z: number };
+      };
+      if (obj.name === 'hill' && obj.position) {
+        hills.push({ x: obj.position.x, z: obj.position.z });
+      } else if (obj.name === 'hill-ramp') {
+        ramps += 1;
+      }
+    });
+    const first = hills[0];
+    const centerHeight = game.city.getTerrainHeight(first.x, first.z);
+    const edgeHeight = game.city.getTerrainHeight(first.x + 22, first.z);
+    const blocked = game.city.treeColliders.some(
+      (t) => Math.hypot(t.x - first.x, t.z - first.z) < 1,
+    );
+    return {
+      x: first.x,
+      z: first.z,
+      hillCount: hills.length,
+      ramps,
+      centerHeight,
+      edgeHeight,
+      blocked,
+    };
+  });
+  expect(hill.hillCount).toBeGreaterThan(6);
+  expect(hill.ramps).toBeGreaterThanOrEqual(hill.hillCount);
+  expect(hill.centerHeight).toBeGreaterThan(2);
+  expect(hill.edgeHeight).toBe(0);
+  expect(hill.blocked).toBe(false);
+
+  await page.evaluate(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      startFreeRoam?: () => void;
+    };
+    game.startFreeRoam?.();
+  });
+  await expect(page.locator('#hud')).toBeVisible();
+  await page.evaluate(
+    ({ x, z }: { x: number; z: number }) => {
+      const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+        debug: { teleport: (x: number, z: number) => void };
+        player: { groundY: number };
+      };
+      game.debug.teleport(x, z);
+      game.player.groundY = 0;
+    },
+    hill,
+  );
+  await page.waitForTimeout(300);
+  const groundY = await page.evaluate(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      player: { groundY: number };
+    };
+    return game.player.groundY;
+  });
+  expect(groundY).toBeGreaterThan(1);
+});
+
+test('vehicle model reload removes the previous external model root', async ({ page }) => {
+  await boot(page);
+  const result = await page.evaluate(async () => {
+    const mod = (await import(
+      '/src/gameplay/VehicleFactory.ts'
+    )) as {
+      attachExternalVehicleModel: (
+        visuals: unknown,
+        url: string,
+        spec: unknown,
+      ) => Promise<void>;
+      vehicleModelUrl: (bodyStyle: string) => string;
+    };
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      showcase: {
+        visuals: {
+          modelRoot: { uuid: string } | null;
+          group: { children: { uuid: string }[] };
+        };
+        spec: { id: string };
+      };
+    };
+    const visuals = game.showcase.visuals;
+    const url = mod.vehicleModelUrl(game.showcase.spec.id);
+    await mod.attachExternalVehicleModel(visuals, url, game.showcase.spec);
+    const firstRoot = visuals.modelRoot;
+    await mod.attachExternalVehicleModel(visuals, url, game.showcase.spec);
+    const secondRoot = visuals.modelRoot;
+    return {
+      firstRemoved: firstRoot ? !visuals.group.children.includes(firstRoot) : false,
+      secondAttached: secondRoot
+        ? visuals.group.children.includes(secondRoot)
+        : false,
+      rootCount: visuals.group.children.filter(
+        (child) => child.uuid === secondRoot?.uuid,
+      ).length,
+    };
+  });
+  expect(result.firstRemoved).toBe(true);
+  expect(result.secondAttached).toBe(true);
+  expect(result.rootCount).toBe(1);
+});
+
 test('endless mode streams chunks past the old finite boundary', async ({ page }) => {
   await boot(page);
   await page.getByRole('button', { name: '无尽模式' }).click();
@@ -777,6 +1030,68 @@ test('endless mode streams chunks past the old finite boundary', async ({ page }
   expect(result.maxX).toBeGreaterThan(100000);
 });
 
+test('endless chunk updates keep nearby NPCs and pedestrians', async ({ page }) => {
+  await boot(page);
+  await page.evaluate(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      startFreeRoam?: (mode: string) => void;
+    };
+    game.startFreeRoam?.('endless');
+  });
+  await expect(page.locator('#hud')).toBeVisible();
+  await page.waitForFunction(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      traffic: { getNpcs: () => unknown[] };
+      pedestrians: { pedestrians: unknown[] };
+    };
+    return (
+      game.traffic.getNpcs().length > 0 &&
+      game.pedestrians.pedestrians.length > 0
+    );
+  }, { timeout: 15000 });
+  const before = await page.evaluate(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as {
+      traffic: { getNpcs: () => unknown[] };
+      pedestrians: { pedestrians: unknown[] };
+    };
+    return {
+      npcs: game.traffic.getNpcs().length,
+      pedestrians: game.pedestrians.pedestrians.length,
+    };
+  });
+  expect(before.npcs).toBeGreaterThan(0);
+
+  await page.evaluate(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      debug: { teleport: (x: number, z: number) => void };
+    };
+    game.debug.teleport(300 + 450, 450);
+  });
+  await page.waitForFunction(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      traffic: { getNpcs: () => unknown[] };
+      pedestrians: { pedestrians: unknown[] };
+    };
+    return (
+      game.traffic.getNpcs().length > 0 &&
+      game.pedestrians.pedestrians.length > 0
+    );
+  }, { timeout: 15000 });
+
+  const after = await page.evaluate(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as {
+      traffic: { getNpcs: () => unknown[] };
+      pedestrians: { pedestrians: unknown[] };
+    };
+    return {
+      npcs: game.traffic.getNpcs().length,
+      pedestrians: game.pedestrians.pedestrians.length,
+    };
+  });
+  expect(after.npcs).toBeGreaterThan(0);
+  expect(after.pedestrians).toBeGreaterThan(0);
+});
+
 test('quality presets switch renderer, shadows and composer', async ({ page }) => {
   await boot(page);
   await page.getByRole('button', { name: '设置' }).click();
@@ -821,6 +1136,39 @@ test('quality presets switch renderer, shadows and composer', async ({ page }) =
   expect(low.composer).toBe(false);
 });
 
+test('pause menu adjusts quality and volume', async ({ page }) => {
+  await boot(page);
+  await page.evaluate(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      startFreeRoam?: () => void;
+    };
+    game.startFreeRoam?.();
+  });
+  await expect(page.locator('#hud')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.pause-overlay')).toBeVisible();
+  await page.locator('.pause-overlay [data-quality="low"]').click();
+  const quality = await page.evaluate(() => {
+    const state = (window as unknown as { __GAME_STATE__?: unknown }).__GAME_STATE__ as {
+      settings: { quality: string };
+    };
+    return state.settings.quality;
+  });
+  expect(quality).toBe('low');
+  await page.evaluate(() => {
+    const slider = document.querySelector('#pause-bgm-volume') as HTMLInputElement;
+    slider.value = '0.25';
+    slider.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  const volume = await page.evaluate(() => {
+    const state = (window as unknown as { __GAME_STATE__?: unknown }).__GAME_STATE__ as {
+      settings: { bgmVolume: number };
+    };
+    return state.settings.bgmVolume;
+  });
+  expect(volume).toBe(0.25);
+});
+
 test('player vehicle exposes the requested body parts', async ({ page }) => {
   await boot(page);
   const parts = await page.evaluate(() => {
@@ -843,12 +1191,16 @@ test('player vehicle exposes the requested body parts', async ({ page }) => {
       'RearDoor_L',
       'RearDoor_R',
       'TrunkLid',
+      'FrontBumper',
+      'RearBumper',
       'Mirror_L',
       'Mirror_R',
+      'Grille',
       'Headlight_L',
       'Headlight_R',
       'Taillight_L',
       'Taillight_R',
+      'Spoiler',
       'Windows',
       'Wheel_LF',
       'Wheel_RF',
@@ -857,7 +1209,12 @@ test('player vehicle exposes the requested body parts', async ({ page }) => {
     ];
     return {
       missing: required.filter((name) => !map.has(name)),
-      visible: required.filter((name) => map.get(name)?.visible === true),
+      bodyVisible: required.filter(
+        (name) => !name.startsWith('Wheel_') && map.get(name)?.visible === true,
+      ).length,
+      wheelVisible: required
+        .filter((name) => name.startsWith('Wheel_'))
+        .filter((name) => map.get(name)?.visible === true).length,
       windowsType: map.get('Windows')?.type,
       wheelTypes: required
         .filter((name) => name.startsWith('Wheel_'))
@@ -865,7 +1222,8 @@ test('player vehicle exposes the requested body parts', async ({ page }) => {
     };
   });
   expect(parts.missing).toEqual([]);
-  expect(parts.visible).toHaveLength(18);
+  expect(parts.bodyVisible).toBe(18);
+  expect(parts.wheelVisible).toBe(4);
   expect(parts.windowsType).toBe('Mesh');
   expect(parts.wheelTypes).toEqual([
     'Wheel_LF:Group',
