@@ -553,6 +553,60 @@ test('race countdown, debug finish and restart', async ({ page }) => {
   await expect(page.locator('#result-title')).toBeVisible();
 });
 
+test('one-lap race does not finish at the first checkpoint', async ({ page }) => {
+  await boot(page);
+  await page.getByRole('button', { name: '竞速模式' }).click();
+  await page.evaluate(() => {
+    const g = window as unknown as {
+      __GAME_STATE__: { race: { totalLaps: number } };
+    };
+    g.__GAME_STATE__.race.totalLaps = 1;
+  });
+  await page.getByRole('button', { name: '开始比赛' }).click();
+  await page.waitForFunction(() => {
+    const g = window as unknown as GameWindow;
+    return g.__GAME_STATE__.race.phase === 'racing';
+  }, undefined, { timeout: 15000 });
+  await page.evaluate(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      player: { x: number; z: number; heading: number; speed: number };
+    };
+    game.player.x = 1200;
+    game.player.z = 650;
+    game.player.heading = 0;
+    game.player.speed = 25;
+  });
+  await page.waitForFunction(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      player: { z: number };
+    };
+    return game.player.z > 610;
+  }, undefined, { timeout: 5000 });
+  const state = await page.evaluate(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      race: {
+        phase: string;
+        racers: {
+          lap: number;
+          checkpoint: number;
+          finished: boolean;
+        }[];
+      };
+    };
+    const player = game.race.racers[0];
+    return {
+      phase: game.race.phase,
+      lap: player.lap,
+      checkpoint: player.checkpoint,
+      finished: player.finished,
+    };
+  });
+  expect(state.phase).toBe('racing');
+  expect(state.lap).toBe(0);
+  expect(state.checkpoint).toBe(0);
+  expect(state.finished).toBe(false);
+});
+
 test('race menu selects opponents and laps before starting', async ({ page }) => {
   await boot(page);
   await page.getByRole('button', { name: '竞速模式' }).click();
@@ -827,6 +881,7 @@ test('race AI opponents follow the route and keep moving', async ({ page }) => {
           vehicle: { x: number; z: number };
           checkpoint: number;
           lap: number;
+          finished: boolean;
         }[];
       };
     };
@@ -835,6 +890,7 @@ test('race AI opponents follow the route and keep moving', async ({ page }) => {
       z: racer.vehicle.z,
       checkpoint: racer.checkpoint,
       lap: racer.lap,
+      finished: racer.finished,
     }));
   });
   for (let i = 0; i < before.length; i += 1) {
@@ -843,7 +899,7 @@ test('race AI opponents follow the route and keep moving', async ({ page }) => {
       after[i].z - before[i].z,
     );
     expect(moved).toBeGreaterThan(60);
-    expect(after[i].lap + after[i].checkpoint).toBeGreaterThan(0);
+    expect(after[i].finished).toBe(false);
   }
 });
 

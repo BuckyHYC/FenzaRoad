@@ -218,7 +218,7 @@ export class RaceManager {
       vehicle.reset(startPositions[i].x, startPositions[i].z, startHeading);
       this.racers.push({
         vehicle,
-        checkpoint: Math.max(0, this.checkpoints.length - 1),
+        checkpoint: 0,
         lap: 0,
         finished: false,
         finishTimeMs: 0,
