@@ -6,6 +6,7 @@ import type {
   Density,
   Difficulty,
   QualityPreset,
+  RaceLayoutId,
   RacePhase,
   VehicleSpec,
 } from '../core/types';
@@ -198,6 +199,7 @@ export class UIManager {
     settingsMuteButton.textContent = gameState.settings.muted ? '声音：关' : '声音：开';
 
     this.setDifficulty(gameState.race.difficulty);
+    this.setRaceLayout(gameState.race.layoutId);
     this.refreshControlModeButtons();
 
     const resultTitle = this.resultOverlay.querySelector('#result-title');
@@ -469,10 +471,26 @@ export class UIManager {
     this.refreshRaceMenuOptions();
   }
 
+  setRaceLayout(layoutId: RaceLayoutId): void {
+    gameState.setRaceLayout(layoutId);
+    const buttons = this.raceMenuOverlay.querySelectorAll('[data-race-layout]');
+    for (const node of buttons) {
+      const isActive =
+        node instanceof HTMLElement && node.dataset.raceLayout === layoutId;
+      node.classList.toggle('active', isActive);
+    }
+    this.refreshRaceMenuOptions();
+  }
+
   private refreshRaceMenuOptions(): void {
     const meta = this.raceMenuOverlay.querySelector('#race-menu-meta');
     if (meta instanceof HTMLElement) {
-      meta.textContent = `城市环路 · ${gameState.race.totalLaps} 圈 · ${gameState.race.totalRacers} 台车`;
+      const layoutNames: Record<RaceLayoutId, string> = {
+        perimeter: '城市环路',
+        cityTour: '城市巡回',
+        hillLoop: '山地纵贯',
+      };
+      meta.textContent = `${layoutNames[gameState.race.layoutId]} · ${gameState.race.totalLaps} 圈 · ${gameState.race.totalRacers} 台车`;
     }
     const opponentsValue = this.raceMenuOverlay.querySelector('#race-opponents');
     if (opponentsValue instanceof HTMLElement) {
@@ -718,6 +736,19 @@ export class UIManager {
       diffRow.appendChild(node);
     }
     panel.appendChild(diffRow);
+
+    const layoutRow = el('div', 'difficulty-row race-layout-row') as HTMLDivElement;
+    const layouts: { id: RaceLayoutId; label: string }[] = [
+      { id: 'perimeter', label: '城市环路' },
+      { id: 'cityTour', label: '城市巡回' },
+      { id: 'hillLoop', label: '山地纵贯' },
+    ];
+    for (const item of layouts) {
+      const node = button('seg-btn', item.label, () => this.setRaceLayout(item.id));
+      node.dataset.raceLayout = item.id;
+      layoutRow.appendChild(node);
+    }
+    panel.appendChild(layoutRow);
 
     const opponentsRow = el('div', 'race-option-row') as HTMLDivElement;
     opponentsRow.appendChild(el('span', 'settings-label', '对手数量'));

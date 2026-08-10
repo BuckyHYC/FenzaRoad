@@ -9,6 +9,7 @@ import type {
   MultiplayerState,
   PlayerState,
   QualityPreset,
+  RaceLayoutId,
   RaceState,
   SavedProgress,
 } from './types';
@@ -123,6 +124,7 @@ class GameState {
     totalLaps: 3,
     totalRacers: 4,
     difficulty: 'normal',
+    layoutId: 'perimeter',
     resultPosition: 0,
     bestLapMs: 0,
   };
@@ -160,6 +162,10 @@ class GameState {
 
   setDifficulty(difficulty: Difficulty): void {
     this.race.difficulty = difficulty;
+  }
+
+  setRaceLayout(layoutId: RaceLayoutId): void {
+    this.race.layoutId = layoutId;
   }
 
   setMapMode(mode: MapMode): void {

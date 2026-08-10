@@ -583,6 +583,69 @@ test('race barriers stay off the perimeter race road', async ({ page }) => {
   expect(result.blocked).toBe(0);
 });
 
+test('race menu switches layouts and boundary fence sits outside the map', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(String(error)));
+  page.on('console', (message) => {
+    if (message.type() === 'error') errors.push(message.text());
+  });
+  await boot(page);
+  await page.getByRole('button', { name: '竞速模式' }).click();
+  await expect(page.locator('[data-race-layout="cityTour"]')).toBeVisible();
+  await page.locator('[data-race-layout="cityTour"]').click();
+  await expect(page.locator('[data-race-layout="cityTour"]')).toHaveClass(/active/);
+  await page.getByRole('button', { name: '开始比赛' }).click();
+  await page.waitForFunction(() => {
+    const g = window as unknown as GameWindow;
+    return g.__GAME_STATE__.race.phase === 'racing';
+  }, undefined, { timeout: 15000 });
+  const state = await page.evaluate(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      city: {
+        activeRaceLayoutId: string;
+        raceLayouts: { id: string; checkpoints: unknown[] }[];
+        raceBarriers: unknown[];
+        group: {
+          traverse: (fn: (obj: unknown) => void) => void;
+        };
+      };
+      race: { checkpoints: unknown[] };
+    };
+    let wallMinX = Infinity;
+    let wallMaxX = -Infinity;
+    game.city.group.traverse((raw) => {
+      const obj = raw as {
+        name?: string;
+        geometry?: { attributes?: { position?: { array?: number[] } } };
+      };
+      if (obj.name === 'boundary-wall') {
+        const positions = obj.geometry?.attributes?.position?.array;
+        if (positions) {
+          for (let i = 0; i < positions.length; i += 3) {
+            wallMinX = Math.min(wallMinX, positions[i]);
+            wallMaxX = Math.max(wallMaxX, positions[i]);
+          }
+        }
+      }
+    });
+    return {
+      layoutId: game.city.activeRaceLayoutId,
+      layoutCount: game.city.raceLayouts.length,
+      checkpointCount: game.race.checkpoints.length,
+      barrierCount: game.city.raceBarriers.length,
+      wallMinX,
+      wallMaxX,
+    };
+  });
+  expect(state.layoutId).toBe('cityTour');
+  expect(state.layoutCount).toBe(3);
+  expect(state.checkpointCount).toBeGreaterThan(10);
+  expect(state.barrierCount).toBeGreaterThan(0);
+  expect(state.wallMinX).toBeLessThan(-10);
+  expect(state.wallMaxX).toBeGreaterThan(1210);
+  expect(errors).toEqual([]);
+});
+
 test('desktop visual and FPS smoke', async ({ page }) => {
   await boot(page);
   fs.mkdirSync('test-results', { recursive: true });

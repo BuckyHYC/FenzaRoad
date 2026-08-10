@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { COLORS, WORLD } from '../core/Constants';
-import type { Aabb, CircleCollider, LaneInfo } from '../core/types';
+import type { Aabb, CircleCollider, LaneInfo, RaceLayout } from '../core/types';
 import type { City, CityEdge, CityIntersection } from './CityBuilder';
 
 const BLOCK = WORLD.BLOCK_LENGTH;
@@ -641,9 +641,6 @@ export function buildEndlessWorld(scene: THREE.Scene): City {
     buildingColliders,
     treeColliders,
     raceBarriers: [],
-    raceCheckpoints: [],
-    raceStartSlots: [],
-    raceStartHeading: Math.PI / 2,
     bounds: {
       minX: -1000000,
       maxX: 1000000,
@@ -651,8 +648,18 @@ export function buildEndlessWorld(scene: THREE.Scene): City {
       maxZ: 1000000,
     },
     raceProps,
+    raceLayouts: [],
+    activeRaceLayoutId: 'perimeter',
     revision: 0,
     setRacePropsVisible: (_visible: boolean): void => undefined,
+    setRaceLayout: (): RaceLayout => ({
+      id: 'perimeter',
+      name: '',
+      checkpoints: [],
+      startSlots: [],
+      startHeading: Math.PI / 2,
+      raceBarriers: [],
+    }),
     lightGreen: (axis: 'x' | 'z', timeSec: number, nodeIndex: number): boolean => {
       const offset = (nodeIndex % 7) * 1.6;
       const t = (timeSec + offset) % WORLD.LIGHT_CYCLE;

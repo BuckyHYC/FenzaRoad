@@ -15,7 +15,7 @@ import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { eventBus, Events } from './EventBus';
 import { gameState } from './GameState';
-import type { CameraMode, MapMode, QualityPreset, RoomInfo } from './types';
+import type { CameraMode, MapMode, QualityPreset, RaceLayout, RoomInfo } from './types';
 import { InputSystem } from '../systems/InputSystem';
 import { AudioSystem } from '../systems/AudioSystem';
 import { buildCity, type City } from '../level/CityBuilder';
@@ -80,7 +80,7 @@ export class Game {
   private readonly audio: AudioSystem;
   private readonly traffic: TrafficSystem;
   private readonly pedestrians: PedestrianSystem;
-  private readonly race: RaceManager;
+  private race: RaceManager;
   private readonly aiVehicles: PlayerVehicle[] = [];
   private readonly remoteVehicles = new Map<string, PlayerVehicle>();
   private readonly remoteTargets = new Map<string, { x: number; z: number; heading: number; speedMs: number }>();
@@ -197,7 +197,9 @@ export class Game {
     this.showcase = this.createPlayer(gameState.player.vehicleId, gameState.player.color);
     this.traffic = new TrafficSystem(this.finiteCity, this.scene);
     this.pedestrians = new PedestrianSystem(this.finiteCity, this.scene);
-    this.race = new RaceManager(this.city.raceCheckpoints);
+    this.race = new RaceManager(
+      this.finiteCity.raceLayouts[0].checkpoints.map((p) => new THREE.Vector3(p.x, 0, p.z)),
+    );
     this.ui = new UIManager(this, this.input, container);
 
     this.subscribeMultiplayerEvents();
@@ -469,6 +471,14 @@ export class Game {
     this.multiplayerClient.startGame();
   }
 
+  private getActiveRaceLayout(): RaceLayout {
+    return (
+      this.finiteCity.raceLayouts.find(
+        (layout) => layout.id === gameState.race.layoutId,
+      ) ?? this.finiteCity.raceLayouts[0]
+    );
+  }
+
   startMultiplayer(): void {
     this.setWorld('finite');
     gameState.resetRun();
@@ -486,7 +496,9 @@ export class Game {
         (p) => p.username === gameState.multiplayer.username,
       ),
     );
-    const slot = this.finiteCity.raceStartSlots[playerIndex % this.finiteCity.raceStartSlots.length];
+    const defaultLayout = this.finiteCity.raceLayouts[0];
+    const slot =
+      defaultLayout.startSlots[playerIndex % defaultLayout.startSlots.length];
     this.player.reset(slot.x, slot.z, Math.PI / 2);
     this.audio.init();
     this.audio.resume();
@@ -516,6 +528,7 @@ export class Game {
     this.leaveMultiplayerIfNeeded();
     this.setWorld('finite');
     const difficulty = gameState.race.difficulty;
+    const layout = this.finiteCity.setRaceLayout(gameState.race.layoutId);
     gameState.resetRun();
     gameState.race.difficulty = difficulty;
     gameState.setMode('race');
@@ -536,13 +549,16 @@ export class Game {
       const spec = available[i % available.length];
       this.aiVehicles.push(this.createPlayer(spec.id, spec.color, false, false));
     }
+    this.race = new RaceManager(
+      layout.checkpoints.map((p) => new THREE.Vector3(p.x, 0, p.z)),
+    );
     this.race.init(
       this.player,
       this.aiVehicles,
       difficulty,
       gameState.race.totalLaps,
-      this.city.raceStartSlots,
-      this.city.raceStartHeading,
+      layout.startSlots.map((p) => new THREE.Vector3(p.x, 0, p.z)),
+      layout.startHeading,
     );
     this.race.startCountdown();
     this.audio.init();
@@ -616,15 +632,19 @@ export class Game {
       const playerIndex = gameState.multiplayer.players.findIndex(
         (p) => p.username === gameState.multiplayer.username,
       );
-      const slot = this.finiteCity.raceStartSlots[Math.max(0, playerIndex)];
+      const defaultLayout = this.finiteCity.raceLayouts[0];
+      const slot =
+        defaultLayout.startSlots[
+          Math.max(0, playerIndex) % defaultLayout.startSlots.length
+        ];
       this.player.reset(slot.x, slot.z, Math.PI / 2);
       return;
     }
     if (gameState.mode === 'race' && this.race.phase !== 'finished') {
       const racer = this.race.racers[this.race.playerIndex];
-      const W = this.city.raceCheckpoints.length;
-      const target = this.city.raceCheckpoints[(racer.checkpoint + 1) % W];
-      const prev = this.city.raceCheckpoints[racer.checkpoint];
+      const W = this.race.checkpoints.length;
+      const target = this.race.checkpoints[(racer.checkpoint + 1) % W];
+      const prev = this.race.checkpoints[racer.checkpoint];
       const dx = target.x - prev.x;
       const dz = target.z - prev.z;
       const len = Math.hypot(dx, dz) || 1;
@@ -971,6 +991,7 @@ export class Game {
   }
 
   private resolveWorldCollisions(vehicle: PlayerVehicle): void {
+    if (!Number.isFinite(vehicle.x) || !Number.isFinite(vehicle.z)) return;
     const radius = vehicle.spec.width / 2 + PHYSICS.CAR_RADIUS_PADDING;
     const velocity = vehicle.getVelocity();
     const emitCollision = (intensity: number): void => {
@@ -1057,7 +1078,7 @@ export class Game {
       }
     }
     if (gameState.mode === 'race') {
-      for (const box of this.city.raceBarriers) {
+      for (const box of this.getActiveRaceLayout().raceBarriers) {
         const closestX = Math.max(box.minX, Math.min(vehicle.x, box.maxX));
         const closestZ = Math.max(box.minZ, Math.min(vehicle.z, box.maxZ));
         const dx = vehicle.x - closestX;
@@ -1158,6 +1179,7 @@ export class Game {
     const minDist = radius + other.radius;
     const distSq = dx * dx + dz * dz;
     if (distSq >= minDist * minDist || distSq < 0.0001) return;
+    if (!Number.isFinite(distSq) || !Number.isFinite(minDist)) return;
     const dist = Math.sqrt(distSq);
     const nx = dx / dist;
     const nz = dz / dist;
@@ -1170,7 +1192,7 @@ export class Game {
     const va = vehicle.getVelocity();
     const vb = otherVehicle.getVelocity();
     const relN = (va.vx - vb.vx) * nx + (va.vz - vb.vz) * nz;
-    if (relN >= 0) return;
+    if (relN >= 0 || !Number.isFinite(relN)) return;
 
     const ma = vehicleMass(vehicle);
     const mb = vehicleMass(otherVehicle);
@@ -1413,7 +1435,7 @@ export class Game {
   private debugNextLap(): void {
     if (gameState.mode !== 'race' || this.race.phase !== 'racing') return;
     const racer = this.race.racers[this.race.playerIndex];
-    racer.checkpoint = this.city.raceCheckpoints.length - 2;
+    racer.checkpoint = this.race.checkpoints.length - 2;
     racer.lap = Math.min(racer.lap + 1, this.race.totalLaps - 1);
   }
 

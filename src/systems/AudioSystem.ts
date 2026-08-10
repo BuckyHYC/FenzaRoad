@@ -110,7 +110,9 @@ export class AudioSystem {
   }
 
   playCollision(intensity: number): void {
-    if (!this.ctx || !this.noiseBuffer || this.muted || intensity < 0.25) return;
+    if (!this.ctx || !this.noiseBuffer || this.muted) return;
+    const t = Number.isFinite(intensity) ? Math.max(0, Math.min(1, intensity)) : 0;
+    if (t < 0.25) return;
     const source = this.ctx.createBufferSource();
     source.buffer = this.noiseBuffer;
     const filter = this.ctx.createBiquadFilter();
@@ -118,7 +120,7 @@ export class AudioSystem {
     filter.frequency.value = 220;
     filter.Q.value = 0.8;
     const gain = this.ctx.createGain();
-    const peak = Math.min(0.5, (0.12 + intensity * 0.25) * this.sfxVolume);
+    const peak = Math.min(0.5, (0.12 + t * 0.25) * this.sfxVolume);
     gain.gain.setValueAtTime(peak, this.ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.22);
     source.connect(filter);

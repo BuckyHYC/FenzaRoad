@@ -7,6 +7,7 @@ export type ControlMode = 'mobile' | 'desktop';
 export type Density = 'low' | 'medium' | 'high';
 export type MapMode = 'finite' | 'endless';
 export type QualityPreset = 'auto' | 'high' | 'medium' | 'low';
+export type RaceLayoutId = 'perimeter' | 'cityTour' | 'hillLoop';
 
 export interface MultiplayerPlayer {
   id: string;
@@ -118,6 +119,16 @@ export interface RaceState {
   totalLaps: number;
   totalRacers: number;
   difficulty: Difficulty;
+  layoutId: RaceLayoutId;
   resultPosition: number;
   bestLapMs: number;
+}
+
+export interface RaceLayout {
+  id: RaceLayoutId;
+  name: string;
+  checkpoints: { x: number; z: number }[];
+  startSlots: { x: number; z: number }[];
+  startHeading: number;
+  raceBarriers: Aabb[];
 }
