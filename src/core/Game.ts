@@ -91,7 +91,7 @@ export class Game {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, renderScale));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.shadowMap.enabled = !lowPowerRender;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     container.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
@@ -117,13 +117,15 @@ export class Game {
     const sunDir = getSunDirection();
     this.sun.position.set(sunDir.x * 300, sunDir.y * 300, sunDir.z * 300);
     this.sun.castShadow = !lowPowerRender;
-    this.sun.shadow.mapSize.set(1024, 1024);
+    this.sun.shadow.mapSize.set(2048, 2048);
     this.sun.shadow.camera.near = 1;
     this.sun.shadow.camera.far = 600;
     this.sun.shadow.camera.left = -140;
     this.sun.shadow.camera.right = 140;
     this.sun.shadow.camera.top = 140;
     this.sun.shadow.camera.bottom = -140;
+    this.sun.shadow.bias = -0.0004;
+    this.sun.shadow.normalBias = 0.02;
     this.scene.add(this.sun);
     this.scene.add(this.sun.target);
 
@@ -239,7 +241,7 @@ export class Game {
       this.thumbRenderer.setPixelRatio(1);
       this.thumbRenderer.setSize(440, 280);
       this.thumbRenderer.shadowMap.enabled = true;
-      this.thumbRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      this.thumbRenderer.shadowMap.type = THREE.PCFShadowMap;
     }
     if (!this.thumbScene || !this.thumbCamera) {
       const scene = new THREE.Scene();
@@ -248,13 +250,15 @@ export class Game {
       const sun = new THREE.DirectionalLight(0xfff2d8, 2.4);
       sun.position.set(5, 8, 6);
       sun.castShadow = true;
-      sun.shadow.mapSize.set(1024, 1024);
+      sun.shadow.mapSize.set(2048, 2048);
       sun.shadow.camera.near = 1;
       sun.shadow.camera.far = 30;
       sun.shadow.camera.left = -6;
       sun.shadow.camera.right = 6;
       sun.shadow.camera.top = 6;
       sun.shadow.camera.bottom = -6;
+      sun.shadow.bias = -0.0004;
+      sun.shadow.normalBias = 0.02;
       scene.add(sun);
       scene.add(sun.target);
       const ground = new THREE.Mesh(

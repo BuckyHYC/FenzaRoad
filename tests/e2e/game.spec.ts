@@ -117,11 +117,13 @@ test('drift pose rotates the model without changing driving physics', async ({ p
     player.update(0.06, { throttle: 0, brake: 0, steer: 1, handbrake: true });
     const pose = player.getDriftPose();
     const driftDiff = Math.abs(player.visuals.group.rotation.y - player.heading);
+    const driftRotDelta = player.visuals.group.rotation.y - player.heading;
     const headingAfter = player.heading;
-    return { names: [...names], pose, driftDiff, headingAfter };
+    return { names: [...names], pose, driftDiff, driftRotDelta, headingAfter };
   });
   expect(result.pose).toBeGreaterThan(0.3);
   expect(result.driftDiff).toBeGreaterThan(0.05);
+  expect(result.driftRotDelta).toBeGreaterThan(0.05);
   expect(result.headingAfter).toBeLessThan(0.3);
   expect(result.names).toEqual(
     expect.arrayContaining([
@@ -391,6 +393,12 @@ test('river has a sunken bed with animated water', async ({ page }) => {
 
 test('settings screen and mobile camera button work', async ({ page }) => {
   await boot(page);
+  expect(
+    await page
+      .locator('.menu-btn-lg')
+      .first()
+      .evaluate((el) => getComputedStyle(el).userSelect),
+  ).toBe('none');
   await page.getByRole('button', { name: '设置' }).click();
   await expect(page.locator('.settings-overlay')).toContainText('声音');
   await expect(page.locator('.settings-overlay')).toContainText('操控方式');
@@ -567,6 +575,7 @@ test('map splits into rectangular zones and sun lights from an offset', async ({
       };
       sun: { position: { x: number; y: number; z: number } };
       sky: { material?: { map?: { image?: HTMLCanvasElement } } };
+      renderer: { shadowMap: { type: number } };
     };
     let maxBuildingX = -Infinity;
     let hillCount = 0;
@@ -600,6 +609,8 @@ test('map splits into rectangular zones and sun lights from an offset', async ({
     });
     skyCanvas = game.sky.material?.map?.image ?? null;
     const sun = game.sun.position;
+    const shadowType = game.renderer.shadowMap.type;
+    const shadowSize = (game.sun as unknown as { shadow: { mapSize: { width: number } } }).shadow.mapSize.width;
     const elevation = Math.atan2(sun.y, Math.hypot(sun.x, sun.z));
     const azimuth = Math.atan2(sun.z, sun.x);
     let sunBright = false;
@@ -626,6 +637,8 @@ test('map splits into rectangular zones and sun lights from an offset', async ({
       elevation,
       azimuth,
       sunBright,
+      shadowType,
+      shadowSize,
     };
   });
 
@@ -639,4 +652,6 @@ test('map splits into rectangular zones and sun lights from an offset', async ({
   expect(result.elevation).toBeLessThan(1.1);
   expect(result.azimuth).not.toBeCloseTo(0, 1);
   expect(result.sunBright).toBe(true);
+  expect(result.shadowType).toBe(1);
+  expect(result.shadowSize).toBeGreaterThanOrEqual(2048);
 });

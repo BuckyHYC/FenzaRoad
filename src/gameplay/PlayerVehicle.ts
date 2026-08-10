@@ -262,8 +262,8 @@ export class PlayerVehicle {
   private syncVisuals(): void {
     const group = this.visuals.group;
     group.position.set(this.x, 0, this.z);
-    group.rotation.y = this.heading + this.driftPose * -this.steerAngle * 1.6;
-    group.rotation.z = this.driftPose * -this.steerAngle * 0.18;
+    group.rotation.y = this.heading + this.driftPose * this.steerAngle * 1.6;
+    group.rotation.z = this.driftPose * this.steerAngle * 0.18;
     this.visuals.frontLeftPivot.rotation.y = this.steerAngle;
     this.visuals.frontRightPivot.rotation.y = this.steerAngle;
     if (this.visuals.steeringWheel) {
