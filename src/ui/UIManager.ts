@@ -1,7 +1,14 @@
 import { RACE_CONFIG, VEHICLES } from '../core/Constants';
 import { eventBus, Events } from '../core/EventBus';
 import { gameState } from '../core/GameState';
-import type { ControlMode, Density, Difficulty, RacePhase, VehicleSpec } from '../core/types';
+import type {
+  ControlMode,
+  Density,
+  Difficulty,
+  QualityPreset,
+  RacePhase,
+  VehicleSpec,
+} from '../core/types';
 import type { InputSystem } from '../systems/InputSystem';
 import type { Game } from '../core/Game';
 import { Minimap } from './Minimap';
@@ -47,6 +54,8 @@ export class UIManager {
   private readonly raceMenuOverlay: HTMLDivElement;
   private readonly settingsOverlay: HTMLDivElement;
   private readonly garageOverlay: HTMLDivElement;
+  private readonly multiplayerOverlay: HTMLDivElement;
+  private readonly lobbyOverlay: HTMLDivElement;
   private readonly hudOverlay: HTMLDivElement;
   private readonly countdownOverlay: HTMLDivElement;
   private readonly pauseOverlay: HTMLDivElement;
@@ -63,6 +72,12 @@ export class UIManager {
   private readonly muteButton: HTMLButtonElement;
   private readonly resultTitle: HTMLHeadingElement;
   private readonly resultDetail: HTMLParagraphElement;
+  private readonly multiplayerStatus: HTMLSpanElement;
+  private readonly multiplayerUsername: HTMLSpanElement;
+  private readonly multiplayerRooms: HTMLDivElement;
+  private readonly lobbyTitle: HTMLHeadingElement;
+  private readonly lobbyPlayers: HTMLDivElement;
+  private readonly lobbyStart: HTMLButtonElement;
   private readonly garageCards = new Map<string, HTMLButtonElement>();
   private readonly garageSwatches: HTMLDivElement;
   private readonly garageName: HTMLHeadingElement;
@@ -85,6 +100,8 @@ export class UIManager {
     this.raceMenuOverlay = this.buildRaceMenu();
     this.settingsOverlay = this.buildSettings();
     this.garageOverlay = this.buildGarage();
+    this.multiplayerOverlay = this.buildMultiplayer();
+    this.lobbyOverlay = this.buildLobby();
     this.hudOverlay = this.buildHud();
     this.countdownOverlay = el('div', 'overlay countdown-overlay hidden') as HTMLDivElement;
     this.pauseOverlay = this.buildPause();
@@ -95,6 +112,8 @@ export class UIManager {
       this.raceMenuOverlay,
       this.settingsOverlay,
       this.garageOverlay,
+      this.multiplayerOverlay,
+      this.lobbyOverlay,
       this.hudOverlay,
       this.countdownOverlay,
       this.pauseOverlay,
@@ -141,18 +160,38 @@ export class UIManager {
     const garageThumb = this.garageOverlay.querySelector('#garage-thumb');
     const muteButton = this.menuOverlay.querySelector('#menu-mute');
     const settingsMuteButton = this.settingsOverlay.querySelector('#settings-mute');
+    const multiplayerStatus = this.multiplayerOverlay.querySelector('#multiplayer-status');
+    const multiplayerUsername = this.multiplayerOverlay.querySelector('#multiplayer-username');
+    const multiplayerRooms = this.multiplayerOverlay.querySelector('#multiplayer-rooms');
+    const multiplayerRoomName = this.multiplayerOverlay.querySelector('#multiplayer-room-name');
+    const lobbyTitle = this.lobbyOverlay.querySelector('#lobby-title');
+    const lobbyPlayers = this.lobbyOverlay.querySelector('#lobby-players');
+    const lobbyStart = this.lobbyOverlay.querySelector('#lobby-start');
     if (
       !(garageName instanceof HTMLHeadingElement) ||
       !(garageSwatches instanceof HTMLDivElement) ||
       !(garageThumb instanceof HTMLImageElement) ||
       !(muteButton instanceof HTMLButtonElement) ||
-      !(settingsMuteButton instanceof HTMLButtonElement)
+      !(settingsMuteButton instanceof HTMLButtonElement) ||
+      !(multiplayerStatus instanceof HTMLSpanElement) ||
+      !(multiplayerUsername instanceof HTMLSpanElement) ||
+      !(multiplayerRooms instanceof HTMLDivElement) ||
+      !(multiplayerRoomName instanceof HTMLInputElement) ||
+      !(lobbyTitle instanceof HTMLHeadingElement) ||
+      !(lobbyPlayers instanceof HTMLDivElement) ||
+      !(lobbyStart instanceof HTMLButtonElement)
     ) {
-      throw new Error('Garage/menu elements missing');
+      throw new Error('Garage/menu/multiplayer elements missing');
     }
     this.garageName = garageName;
     this.garageSwatches = garageSwatches;
     this.garageThumb = garageThumb;
+    this.multiplayerStatus = multiplayerStatus;
+    this.multiplayerUsername = multiplayerUsername;
+    this.multiplayerRooms = multiplayerRooms;
+    this.lobbyTitle = lobbyTitle;
+    this.lobbyPlayers = lobbyPlayers;
+    this.lobbyStart = lobbyStart;
     this.muteButton = muteButton;
     this.muteButton.textContent = gameState.settings.muted ? '声音：关' : '声音：开';
     settingsMuteButton.textContent = gameState.settings.muted ? '声音：关' : '声音：开';
@@ -187,6 +226,7 @@ export class UIManager {
     this.settingsOverlay.classList.remove('hidden');
     this.refreshControlModeButtons();
     this.refreshDensityButtons();
+    this.refreshQualityButtons();
     this.touchControls.hide();
   }
 
@@ -201,6 +241,80 @@ export class UIManager {
     this.garageOverlay.classList.remove('hidden');
     this.refreshGaragePreview();
     this.touchControls.hide();
+  }
+
+  showMultiplayer(): void {
+    this.hideAll();
+    this.multiplayerOverlay.classList.remove('hidden');
+    this.refreshMultiplayer();
+    this.touchControls.hide();
+  }
+
+  showMultiplayerHud(): void {
+    this.showFreeRoamHud();
+  }
+
+  refreshMultiplayer(): void {
+    const state = gameState.multiplayer;
+    const connected = state.connected;
+    this.multiplayerStatus.textContent = connected
+      ? '已连接'
+      : state.connecting
+        ? '连接中...'
+        : '未连接';
+    this.multiplayerUsername.textContent = state.username
+      ? `用户名：${state.username}`
+      : '连接后自动分配用户名';
+
+    if (state.roomId && gameState.mode === 'lobby') {
+      this.hideAll();
+      this.lobbyOverlay.classList.remove('hidden');
+      this.lobbyTitle.textContent = state.roomName || '房间';
+      this.lobbyPlayers.replaceChildren();
+      for (const player of state.players) {
+        const row = el('div', 'lobby-player') as HTMLDivElement;
+        row.appendChild(el('span', 'lobby-player-name', player.username));
+        if (player.isHost) row.appendChild(el('span', 'lobby-host', '房主'));
+        this.lobbyPlayers.appendChild(row);
+      }
+      this.lobbyStart.classList.toggle('hidden', !(state.isHost && state.roomId));
+      this.touchControls.hide();
+      return;
+    }
+
+    if (state.roomId && gameState.mode === 'multiplayer') {
+      this.lobbyPlayers.replaceChildren();
+      for (const player of state.players) {
+        const row = el('div', 'lobby-player') as HTMLDivElement;
+        row.appendChild(el('span', 'lobby-player-name', player.username));
+        if (player.isHost) row.appendChild(el('span', 'lobby-host', '房主'));
+        this.lobbyPlayers.appendChild(row);
+      }
+      return;
+    }
+
+    this.multiplayerRooms.replaceChildren();
+    if (state.rooms.length === 0) {
+      this.multiplayerRooms.appendChild(el('p', 'menu-description', '暂无房间，创建一个吧'));
+    }
+    for (const room of state.rooms) {
+      const card = el('div', 'room-card') as HTMLDivElement;
+      const info = el('div', 'room-card-info') as HTMLDivElement;
+      info.appendChild(el('strong', 'room-name', room.name));
+      info.appendChild(
+        el(
+          'span',
+          'room-meta',
+          `${room.hostName} · ${room.players.length}/${room.maxPlayers} · ${room.status === 'playing' ? '游戏中' : '等待中'}`,
+        ),
+      );
+      const join = button('menu-btn menu-btn-small', '加入', () => {
+        this.game.joinMultiplayerRoom(room.id);
+      });
+      join.disabled = room.status === 'playing' || room.players.length >= room.maxPlayers;
+      card.append(info, join);
+      this.multiplayerRooms.appendChild(card);
+    }
   }
 
   showFreeRoamHud(): void {
@@ -335,6 +449,8 @@ export class UIManager {
     const accent = el('div', 'menu-accent') as HTMLDivElement;
     panel.appendChild(accent);
     panel.appendChild(button('menu-btn menu-btn-lg menu-btn-primary', '自由漫游', () => this.game.startFreeRoam()));
+    panel.appendChild(button('menu-btn menu-btn-lg', '无尽模式', () => this.game.startFreeRoam('endless')));
+    panel.appendChild(button('menu-btn menu-btn-lg', '多人游戏', () => this.game.showMultiplayer()));
     panel.appendChild(button('menu-btn menu-btn-lg', '竞速模式', () => this.game.showRaceMenu()));
     panel.appendChild(button('menu-btn menu-btn-lg', '车库', () => this.game.showGarage()));
     panel.appendChild(button('menu-btn menu-btn-lg', '设置', () => this.game.showSettings()));
@@ -354,6 +470,70 @@ export class UIManager {
     this.muteButton.textContent = text;
     const settingsMute = this.settingsOverlay.querySelector('#settings-mute');
     if (settingsMute) settingsMute.textContent = text;
+  }
+
+  private buildMultiplayer(): HTMLDivElement {
+    const overlay = el('div', 'overlay multiplayer-overlay hidden') as HTMLDivElement;
+    const panel = el('div', 'menu-panel multiplayer-panel') as HTMLDivElement;
+    panel.appendChild(el('h1', 'menu-heading', '多人游戏'));
+    panel.appendChild(el('p', 'menu-description', '创建房间或加入同一局域网好友的房间'));
+    const status = el('span', 'multiplayer-status') as HTMLSpanElement;
+    status.id = 'multiplayer-status';
+    status.textContent = '未连接';
+    panel.appendChild(status);
+    const username = el('span', 'multiplayer-username') as HTMLSpanElement;
+    username.id = 'multiplayer-username';
+    panel.appendChild(username);
+
+    const createRow = el('div', 'multiplayer-create') as HTMLDivElement;
+    const nameInput = el('input', 'multiplayer-name-input') as HTMLInputElement;
+    nameInput.id = 'multiplayer-room-name';
+    nameInput.placeholder = '房间名称';
+    nameInput.maxLength = 24;
+    createRow.appendChild(nameInput);
+    createRow.appendChild(
+      button('menu-btn menu-btn-primary menu-btn-small', '创建房间', () => {
+        this.game.createMultiplayerRoom(nameInput.value || '默认房间');
+        nameInput.value = '';
+      }),
+    );
+    panel.appendChild(createRow);
+
+    const rooms = el('div', 'multiplayer-rooms') as HTMLDivElement;
+    rooms.id = 'multiplayer-rooms';
+    panel.appendChild(rooms);
+    panel.appendChild(
+      button('menu-btn menu-btn-secondary', '返回主菜单', () => this.game.showMenu()),
+    );
+    overlay.appendChild(panel);
+    return overlay;
+  }
+
+  private buildLobby(): HTMLDivElement {
+    const overlay = el('div', 'overlay lobby-overlay hidden') as HTMLDivElement;
+    const panel = el('div', 'menu-panel lobby-panel') as HTMLDivElement;
+    const title = el('h1', 'menu-heading') as HTMLHeadingElement;
+    title.id = 'lobby-title';
+    title.textContent = '房间';
+    panel.appendChild(title);
+    panel.appendChild(el('p', 'menu-description', '等待房主开始游戏'));
+    const players = el('div', 'lobby-players') as HTMLDivElement;
+    players.id = 'lobby-players';
+    panel.appendChild(players);
+    const start = button('menu-btn menu-btn-primary', '开始游戏', () => {
+      this.game.startMultiplayerGame();
+    });
+    start.id = 'lobby-start';
+    start.classList.add('hidden');
+    panel.appendChild(start);
+    panel.appendChild(
+      button('menu-btn', '离开房间', () => this.game.leaveMultiplayerRoom()),
+    );
+    panel.appendChild(
+      button('menu-btn menu-btn-secondary', '返回主菜单', () => this.game.showMenu()),
+    );
+    overlay.appendChild(panel);
+    return overlay;
   }
 
   private refreshControlModeButtons(): void {
@@ -438,6 +618,26 @@ export class UIManager {
     }
     densityRow.appendChild(densitySeg);
     panel.appendChild(densityRow);
+
+    const qualityRow = el('div', 'settings-row settings-row-column') as HTMLDivElement;
+    qualityRow.appendChild(el('span', 'settings-label', '画质'));
+    const qualitySeg = el('div', 'difficulty-row') as HTMLDivElement;
+    const qualities: { id: QualityPreset; label: string }[] = [
+      { id: 'auto', label: '自动' },
+      { id: 'high', label: '高' },
+      { id: 'medium', label: '中' },
+      { id: 'low', label: '低' },
+    ];
+    for (const item of qualities) {
+      const node = button('seg-btn', item.label, () => {
+        this.game.setQuality(item.id);
+        this.refreshQualityButtons();
+      });
+      node.dataset.quality = item.id;
+      qualitySeg.appendChild(node);
+    }
+    qualityRow.appendChild(qualitySeg);
+    panel.appendChild(qualityRow);
 
     panel.appendChild(button('menu-btn menu-btn-secondary', '返回主菜单', () => this.game.showMenu()));
     overlay.appendChild(panel);
@@ -644,6 +844,14 @@ export class UIManager {
     }
   }
 
+  private refreshQualityButtons(): void {
+    for (const node of this.root.querySelectorAll('[data-quality]')) {
+      const active =
+        node instanceof HTMLElement && node.dataset.quality === gameState.settings.quality;
+      node.classList.toggle('active', active);
+    }
+  }
+
   private buildResult(): HTMLDivElement {
     const overlay = el('div', 'overlay result-overlay hidden') as HTMLDivElement;
     const panel = el('div', 'menu-panel') as HTMLDivElement;
@@ -824,6 +1032,8 @@ export class UIManager {
       this.raceMenuOverlay,
       this.settingsOverlay,
       this.garageOverlay,
+      this.multiplayerOverlay,
+      this.lobbyOverlay,
       this.hudOverlay,
       this.countdownOverlay,
       this.pauseOverlay,

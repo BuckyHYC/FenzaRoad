@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import type { BodyStyle, VehicleSpec } from '../core/types';
 
 export interface VehicleVisuals {
@@ -9,6 +10,7 @@ export interface VehicleVisuals {
   wheels: THREE.Group[];
   glassMesh: THREE.Mesh | null;
   steeringWheel: THREE.Group | null;
+  modelRoot: THREE.Group | null;
 }
 
 interface CabinProfile {
@@ -123,6 +125,73 @@ const materialCache = new Map<string, THREE.Material>();
 const partGeometryCache = new Map<string, THREE.BufferGeometry>();
 const staticGeometryCache = new Map<string, StaticGeometrySet>();
 let vehicleEnvMap: THREE.Texture | null = null;
+const vehicleGltfCache = new Map<string, Promise<THREE.Group>>();
+const PROCEDURAL_BODY_PARTS = new Set([
+  'body',
+  'glass',
+  'dark',
+  'roof',
+  'lightbarRed',
+  'lightbarBlue',
+  'stripe',
+]);
+
+function loadVehicleScene(url: string): Promise<THREE.Group> {
+  let pending = vehicleGltfCache.get(url);
+  if (!pending) {
+    pending = new Promise((resolve, reject) => {
+      const loader = new GLTFLoader();
+      loader.load(
+        url,
+        (gltf) => resolve(gltf.scene),
+        undefined,
+        (error) => reject(error),
+      );
+    });
+    vehicleGltfCache.set(url, pending);
+  }
+  return pending;
+}
+
+export async function attachExternalVehicleModel(
+  visuals: VehicleVisuals,
+  url: string,
+  spec: VehicleSpec,
+): Promise<void> {
+  try {
+    const source = await loadVehicleScene(url);
+    const root = source.clone(true);
+    root.traverse((node) => {
+      if (node instanceof THREE.Mesh) {
+        node.castShadow = true;
+        node.receiveShadow = false;
+        if (/wheel|tire|rim/i.test(node.name)) {
+          node.visible = false;
+        }
+      }
+    });
+    const box = new THREE.Box3().setFromObject(root);
+    const size = box.getSize(new THREE.Vector3());
+    if (size.x < 1e-4 || size.z < 1e-4 || size.y < 1e-4) return;
+    const scale = Math.min(spec.length / size.z, spec.width / size.x);
+    root.scale.setScalar(scale);
+    root.updateMatrixWorld(true);
+    const fitted = new THREE.Box3().setFromObject(root);
+    const center = fitted.getCenter(new THREE.Vector3());
+    root.position.x -= center.x;
+    root.position.z -= center.z;
+    root.position.y -= fitted.min.y - 0.02;
+    visuals.group.traverse((child) => {
+      if (child instanceof THREE.Mesh && PROCEDURAL_BODY_PARTS.has(child.name)) {
+        child.visible = false;
+      }
+    });
+    visuals.modelRoot = root;
+    visuals.group.add(root);
+  } catch {
+    // Keep the procedural vehicle when the model is unavailable.
+  }
+}
 
 export function setVehicleEnvMap(texture: THREE.Texture): void {
   vehicleEnvMap = texture;
@@ -576,25 +645,27 @@ export function buildVehicle(
 
   const statics = staticGeometries(spec.bodyStyle, L, W, H);
   const attachStatic = (
+    key: MaterialKey,
     geo: THREE.BufferGeometry | null,
     mat: THREE.Material,
   ): THREE.Mesh | null => {
     if (!geo) return null;
     const mesh = new THREE.Mesh(geo, mat);
+    mesh.name = key;
     mesh.castShadow = castShadows;
-    mesh.receiveShadow = true;
+    mesh.receiveShadow = false;
     group.add(mesh);
     return mesh;
   };
-  attachStatic(statics.body, bodyMat);
-  const glassMesh = attachStatic(statics.glass, glassMat);
-  attachStatic(statics.dark, darkMat);
-  attachStatic(statics.headlight, headlightMat);
-  attachStatic(statics.taillight, taillightMat);
-  attachStatic(statics.roof, roofMat);
-  attachStatic(statics.lightbarRed, lightbarRedMat);
-  attachStatic(statics.lightbarBlue, lightbarBlueMat);
-  attachStatic(statics.stripe, stripeMat);
+  attachStatic('body', statics.body, bodyMat);
+  const glassMesh = attachStatic('glass', statics.glass, glassMat);
+  attachStatic('dark', statics.dark, darkMat);
+  attachStatic('headlight', statics.headlight, headlightMat);
+  attachStatic('taillight', statics.taillight, taillightMat);
+  attachStatic('roof', statics.roof, roofMat);
+  attachStatic('lightbarRed', statics.lightbarRed, lightbarRedMat);
+  attachStatic('lightbarBlue', statics.lightbarBlue, lightbarBlueMat);
+  attachStatic('stripe', statics.stripe, stripeMat);
 
   const wheelR = 0.32;
   const tireGeo = geometry(
@@ -753,5 +824,5 @@ export function buildVehicle(
     group.add(steeringPivot);
   }
 
-  return { group, frontLeftPivot, frontRightPivot, wheels, glassMesh, steeringWheel };
+  return { group, frontLeftPivot, frontRightPivot, wheels, glassMesh, steeringWheel, modelRoot: null };
 }

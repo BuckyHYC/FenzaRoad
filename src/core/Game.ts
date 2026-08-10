@@ -3,22 +3,41 @@ import {
   CAMERA_CONFIG,
   COLORS,
   PHYSICS,
+  QUALITY_PRESETS,
   RACE_CONFIG,
   VEHICLES,
   WORLD,
 } from './Constants';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { eventBus, Events } from './EventBus';
 import { gameState } from './GameState';
-import type { CameraMode } from './types';
+import type { CameraMode, MapMode, QualityPreset, RoomInfo } from './types';
 import { InputSystem } from '../systems/InputSystem';
 import { AudioSystem } from '../systems/AudioSystem';
 import { buildCity, type City } from '../level/CityBuilder';
+import { buildEndlessWorld } from '../level/EndlessWorld';
 import { createSkybox, createSkyTexture, getSunDirection } from '../level/Skybox';
 import { PlayerVehicle } from '../gameplay/PlayerVehicle';
-import { setVehicleEnvMap } from '../gameplay/VehicleFactory';
+import {
+  attachExternalVehicleModel,
+  setVehicleEnvMap,
+} from '../gameplay/VehicleFactory';
+import {
+  buildAabbGrid,
+  buildCircleGrid,
+  queryAabbGrid,
+  queryCircleGrid,
+  type AabbGrid,
+  type CircleGrid,
+} from '../gameplay/SpatialGrid';
 import { TrafficSystem } from '../gameplay/TrafficSystem';
 import { PedestrianSystem, type PedestrianCollider } from '../gameplay/PedestrianSystem';
 import { RaceManager } from '../gameplay/RaceManager';
+import { MultiplayerClient } from '../multiplayer/MultiplayerClient';
 import { UIManager } from '../ui/UIManager';
 
 interface MinimapDot {
@@ -56,7 +75,9 @@ export class Game {
   private readonly sky: THREE.Mesh;
   private readonly clock = new THREE.Clock();
   private readonly sun: THREE.DirectionalLight;
-  private readonly city: City;
+  private readonly finiteCity: City;
+  private endlessCity: City | null = null;
+  private city: City;
   private readonly ui: UIManager;
   private readonly input: InputSystem;
   private readonly audio: AudioSystem;
@@ -64,9 +85,25 @@ export class Game {
   private readonly pedestrians: PedestrianSystem;
   private readonly race: RaceManager;
   private readonly aiVehicles: PlayerVehicle[] = [];
+  private readonly remoteVehicles = new Map<string, PlayerVehicle>();
+  private readonly remoteTargets = new Map<string, { x: number; z: number; heading: number; speedMs: number }>();
+  private readonly multiplayerClient = new MultiplayerClient();
+  private buildingGrid: AabbGrid | null = null;
+  private treeGrid: CircleGrid | null = null;
+  private collisionGridCity: City | null = null;
+  private colliderGridRevision = -1;
+  private renderScale = 1;
+  private adaptiveScaleTimer = 0;
+  private adaptiveScaleSamples = 0;
+  private adaptiveScaleFrameMs = 0;
   private player: PlayerVehicle;
   private showcase: PlayerVehicle;
   private cameraMode: CameraMode = 'chase';
+  private quality: QualityPreset;
+  private composer: EffectComposer | null = null;
+  private bloomPass: UnrealBloomPass | null = null;
+  private ssaoPass: SSAOPass | null = null;
+  private multiplayerStateTimer = 0;
   private accumulator = 0;
   private orbitTime = 0;
   private timeSec = 0;
@@ -83,15 +120,29 @@ export class Game {
   constructor(container: HTMLElement) {
     const lowPowerRender =
       typeof navigator !== 'undefined' && navigator.webdriver === true;
+    const qualitySetting = gameState.settings.quality;
+    this.quality =
+      qualitySetting === 'auto'
+        ? lowPowerRender
+          ? 'low'
+          : 'medium'
+        : qualitySetting;
+    const qualityConfig = QUALITY_PRESETS[this.quality];
     this.renderer = new THREE.WebGLRenderer({
-      antialias: false,
+      antialias: qualityConfig.antialias,
       powerPreference: 'high-performance',
     });
-    const renderScale = lowPowerRender ? 0.8 : 1.5;
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, renderScale));
+    this.renderer.setPixelRatio(
+      Math.min(window.devicePixelRatio, qualityConfig.pixelRatio),
+    );
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.shadowMap.enabled = !lowPowerRender;
-    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    this.renderer.shadowMap.enabled = qualityConfig.shadowMapSize > 0;
+    this.renderer.shadowMap.type = qualityConfig.pcfSoft
+      ? THREE.PCFSoftShadowMap
+      : THREE.PCFShadowMap;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.08;
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     container.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
@@ -116,20 +167,26 @@ export class Game {
     this.sun = new THREE.DirectionalLight(0xfff2d8, 1.7);
     const sunDir = getSunDirection();
     this.sun.position.set(sunDir.x * 300, sunDir.y * 300, sunDir.z * 300);
-    this.sun.castShadow = !lowPowerRender;
-    this.sun.shadow.mapSize.set(2048, 2048);
+    this.sun.castShadow = qualityConfig.shadowMapSize > 0;
+    this.sun.shadow.mapSize.set(
+      qualityConfig.shadowMapSize,
+      qualityConfig.shadowMapSize,
+    );
     this.sun.shadow.camera.near = 1;
-    this.sun.shadow.camera.far = 600;
-    this.sun.shadow.camera.left = -140;
-    this.sun.shadow.camera.right = 140;
-    this.sun.shadow.camera.top = 140;
-    this.sun.shadow.camera.bottom = -140;
-    this.sun.shadow.bias = -0.0004;
-    this.sun.shadow.normalBias = 0.02;
+    this.sun.shadow.camera.far = 500;
+    this.sun.shadow.camera.left = -120;
+    this.sun.shadow.camera.right = 120;
+    this.sun.shadow.camera.top = 120;
+    this.sun.shadow.camera.bottom = -120;
+    this.sun.shadow.bias = -0.00025;
+    this.sun.shadow.normalBias = 0.012;
+    this.sun.shadow.radius = 2;
     this.scene.add(this.sun);
     this.scene.add(this.sun.target);
 
-    this.city = buildCity(this.scene);
+    this.applyQuality();
+    this.finiteCity = buildCity(this.scene, { quality: this.quality });
+    this.city = this.finiteCity;
     this.input = new InputSystem();
     this.audio = new AudioSystem();
     this.audio.init();
@@ -141,10 +198,12 @@ export class Game {
     this.player = this.createPlayer(gameState.player.vehicleId, gameState.player.color);
     this.player.visuals.group.visible = false;
     this.showcase = this.createPlayer(gameState.player.vehicleId, gameState.player.color);
-    this.traffic = new TrafficSystem(this.city, this.scene);
-    this.pedestrians = new PedestrianSystem(this.city, this.scene);
+    this.traffic = new TrafficSystem(this.finiteCity, this.scene);
+    this.pedestrians = new PedestrianSystem(this.finiteCity, this.scene);
     this.race = new RaceManager(this.city.raceCheckpoints);
     this.ui = new UIManager(this, this.input, container);
+
+    this.subscribeMultiplayerEvents();
 
     window.addEventListener('resize', this.onResize);
 
@@ -181,10 +240,61 @@ export class Game {
         dots.push({ x: racer.vehicle.x, z: racer.vehicle.z, isPlayer: false });
       }
     }
+    if (gameState.mode === 'multiplayer') {
+      for (const vehicle of this.remoteVehicles.values()) {
+        dots.push({ x: vehicle.x, z: vehicle.z, isPlayer: false });
+      }
+    }
     return dots;
   }
 
+  private setWorld(mapMode: MapMode): void {
+    const target =
+      mapMode === 'endless' ? this.ensureEndlessCity() : this.finiteCity;
+    const changed = this.city !== target;
+    this.city = target;
+    this.finiteCity.group.visible = mapMode === 'finite';
+    if (this.endlessCity) {
+      this.endlessCity.group.visible = mapMode === 'endless';
+    }
+    if (changed) {
+      this.traffic.setCity(target);
+      this.pedestrians.setCity(target);
+      this.traffic.setActive(false);
+      this.pedestrians.setActive(false);
+      this.clearAiVehicles();
+      this.clearRemoteVehicles();
+    }
+  }
+
+  private ensureEndlessCity(): City {
+    if (!this.endlessCity) {
+      this.endlessCity = buildEndlessWorld(this.scene);
+      this.endlessCity.group.visible = false;
+    }
+    return this.endlessCity;
+  }
+
+  private leaveMultiplayerIfNeeded(): void {
+    if (
+      gameState.mode === 'lobby' ||
+      gameState.mode === 'multiplayer' ||
+      gameState.multiplayer.roomId
+    ) {
+      this.multiplayerClient.leaveRoom();
+      this.multiplayerClient.disconnect();
+      this.clearRemoteVehicles();
+      gameState.multiplayer.roomId = null;
+      gameState.multiplayer.roomName = '';
+      gameState.multiplayer.isHost = false;
+      gameState.multiplayer.players = [];
+      gameState.multiplayer.connected = false;
+    }
+  }
+
   showMenu(): void {
+    this.leaveMultiplayerIfNeeded();
+    this.setWorld('finite');
     gameState.setMode('menu');
     this.city.setRacePropsVisible(false);
     this.ui.showMainMenu();
@@ -198,6 +308,8 @@ export class Game {
   }
 
   showSettings(): void {
+    this.leaveMultiplayerIfNeeded();
+    this.setWorld('finite');
     gameState.setMode('menu');
     this.city.setRacePropsVisible(false);
     this.ui.showSettings();
@@ -211,6 +323,8 @@ export class Game {
   }
 
   showGarage(): void {
+    this.leaveMultiplayerIfNeeded();
+    this.setWorld('finite');
     gameState.setMode('garage');
     this.ui.showGarage();
     this.setShowcaseVisible(true);
@@ -314,6 +428,8 @@ export class Game {
   }
 
   showRaceMenu(): void {
+    this.leaveMultiplayerIfNeeded();
+    this.setWorld('finite');
     gameState.setMode('menu');
     this.city.setRacePropsVisible(false);
     this.ui.showRaceMenu();
@@ -324,9 +440,68 @@ export class Game {
     this.placeShowcase();
   }
 
-  startFreeRoam(): void {
+  showMultiplayer(): void {
+    this.setWorld('finite');
+    gameState.setMode('lobby');
+    gameState.multiplayer.connecting = true;
+    gameState.multiplayer.connected = false;
+    this.ui.showMultiplayer();
+    this.setShowcaseVisible(true);
+    this.setPlayerVisible(false);
+    this.traffic.setActive(false);
+    this.pedestrians.setActive(false);
+    this.clearAiVehicles();
+    this.placeShowcase();
+    this.multiplayerClient.connect();
+  }
+
+  createMultiplayerRoom(name: string): void {
+    this.multiplayerClient.createRoom(name);
+  }
+
+  joinMultiplayerRoom(roomId: string): void {
+    this.multiplayerClient.joinRoom(roomId);
+  }
+
+  leaveMultiplayerRoom(): void {
+    this.multiplayerClient.leaveRoom();
+    this.showMultiplayer();
+  }
+
+  startMultiplayerGame(): void {
+    this.multiplayerClient.startGame();
+  }
+
+  startMultiplayer(): void {
+    this.setWorld('finite');
     gameState.resetRun();
-    gameState.setMode('freeRoam');
+    gameState.setMode('multiplayer');
+    this.city.setRacePropsVisible(false);
+    this.ui.showMultiplayerHud();
+    this.setShowcaseVisible(false);
+    this.setPlayerVisible(true);
+    this.traffic.setActive(false);
+    this.pedestrians.setActive(false);
+    this.clearAiVehicles();
+    const playerIndex = Math.max(
+      0,
+      gameState.multiplayer.players.findIndex(
+        (p) => p.username === gameState.multiplayer.username,
+      ),
+    );
+    const slot = this.finiteCity.raceStartSlots[playerIndex % this.finiteCity.raceStartSlots.length];
+    this.player.reset(slot.x, slot.z, Math.PI / 2);
+    this.audio.init();
+    this.audio.resume();
+    this.audio.startBgm();
+  }
+
+  startFreeRoam(mapMode: MapMode = 'finite'): void {
+    this.leaveMultiplayerIfNeeded();
+    gameState.setMapMode(mapMode);
+    this.setWorld(mapMode);
+    gameState.resetRun();
+    gameState.setMode(mapMode === 'endless' ? 'endless' : 'freeRoam');
     this.city.setRacePropsVisible(false);
     this.ui.showFreeRoamHud();
     this.setShowcaseVisible(false);
@@ -341,6 +516,8 @@ export class Game {
   }
 
   startRace(): void {
+    this.leaveMultiplayerIfNeeded();
+    this.setWorld('finite');
     const difficulty = gameState.race.difficulty;
     gameState.resetRun();
     gameState.race.difficulty = difficulty;
@@ -377,11 +554,20 @@ export class Game {
 
   restartCurrent(): void {
     if (gameState.mode === 'race') this.startRace();
-    else this.startFreeRoam();
+    else if (gameState.mode === 'endless') this.startFreeRoam('endless');
+    else if (gameState.mode === 'multiplayer') this.startMultiplayer();
+    else this.startFreeRoam('finite');
   }
 
   togglePause(): void {
-    if (gameState.mode !== 'freeRoam' && gameState.mode !== 'race') return;
+    if (
+      gameState.mode !== 'freeRoam' &&
+      gameState.mode !== 'endless' &&
+      gameState.mode !== 'race' &&
+      gameState.mode !== 'multiplayer'
+    ) {
+      return;
+    }
     if (gameState.mode === 'race' && this.race.phase === 'finished') return;
     gameState.setPaused(!gameState.paused);
     if (gameState.paused) {
@@ -420,8 +606,16 @@ export class Game {
   }
 
   resetVehicle(): void {
-    if (gameState.mode === 'freeRoam') {
+    if (gameState.mode === 'freeRoam' || gameState.mode === 'endless') {
       this.player.reset(WORLD.SPAWN_X, WORLD.SPAWN_Z, Math.PI);
+      return;
+    }
+    if (gameState.mode === 'multiplayer') {
+      const playerIndex = gameState.multiplayer.players.findIndex(
+        (p) => p.username === gameState.multiplayer.username,
+      );
+      const slot = this.finiteCity.raceStartSlots[Math.max(0, playerIndex)];
+      this.player.reset(slot.x, slot.z, Math.PI / 2);
       return;
     }
     if (gameState.mode === 'race' && this.race.phase !== 'finished') {
@@ -442,14 +636,51 @@ export class Game {
     const dt = Math.min(this.clock.getDelta(), 0.1);
     this.frameCount += 1;
     this.frameTime += dt;
+    this.updateAdaptiveResolution(dt);
     this.accumulator += dt;
     while (this.accumulator >= PHYSICS.FIXED_STEP) {
       this.tick(PHYSICS.FIXED_STEP);
       this.accumulator -= PHYSICS.FIXED_STEP;
     }
     this.sky.position.copy(this.camera.position);
-    this.renderer.render(this.scene, this.camera);
+    if (this.composer) {
+      this.composer.render();
+    } else {
+      this.renderer.render(this.scene, this.camera);
+    }
   };
+
+  private updateAdaptiveResolution(dt: number): void {
+    this.adaptiveScaleTimer += dt;
+    this.adaptiveScaleSamples += 1;
+    this.adaptiveScaleFrameMs += dt * 1000;
+    if (this.adaptiveScaleTimer < 0.7) return;
+    const avgMs = this.adaptiveScaleFrameMs / Math.max(1, this.adaptiveScaleSamples);
+    const fps = 1000 / Math.max(1, avgMs);
+    const config = QUALITY_PRESETS[this.quality];
+    const minScale = config.pixelRatio > 1.25 ? 0.55 : 0.7;
+    let target = this.renderScale;
+    if (fps < 44) {
+      target = Math.max(minScale, this.renderScale - 0.14);
+    } else if (fps >= 56 && this.renderScale < 1) {
+      target = Math.min(1, this.renderScale + 0.06);
+    }
+    this.adaptiveScaleTimer = 0;
+    this.adaptiveScaleSamples = 0;
+    this.adaptiveScaleFrameMs = 0;
+    if (Math.abs(target - this.renderScale) < 0.001) return;
+    this.renderScale = target;
+    this.applyRenderScale();
+  }
+
+  private applyRenderScale(): void {
+    const config = QUALITY_PRESETS[this.quality];
+    this.renderer.setPixelRatio(
+      Math.min(window.devicePixelRatio, config.pixelRatio) * this.renderScale,
+    );
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.composer?.setSize(window.innerWidth, window.innerHeight);
+  }
 
   private tick(dt: number): void {
     this.timeSec += dt;
@@ -457,10 +688,15 @@ export class Game {
     this.handleDiscreteInput();
     this.city.updateSignals(this.timeSec);
     this.city.updateWater(this.timeSec);
-    if (gameState.mode === 'menu' || gameState.mode === 'garage') {
+    const revision = this.city.revision;
+    if (gameState.mode === 'menu' || gameState.mode === 'garage' || gameState.mode === 'lobby') {
       this.city.updateChunks(this.showcase.x, this.showcase.z);
     } else {
       this.city.updateChunks(this.player.x, this.player.z);
+    }
+    if (this.city.revision !== revision) {
+      this.traffic.clear();
+      this.pedestrians.clear();
     }
 
     if (gameState.paused) {
@@ -468,7 +704,7 @@ export class Game {
       return;
     }
 
-    if (gameState.mode === 'menu' || gameState.mode === 'garage') {
+    if (gameState.mode === 'menu' || gameState.mode === 'garage' || gameState.mode === 'lobby') {
       if (this.garageSwitchT < 1) {
         this.garageSwitchT = Math.min(1, this.garageSwitchT + dt * 3.4);
         const t = this.garageSwitchT;
@@ -480,8 +716,10 @@ export class Game {
       }
       this.orbitTime += dt;
       this.updateOrbitCamera();
-    } else if (gameState.mode === 'freeRoam') {
+    } else if (gameState.mode === 'freeRoam' || gameState.mode === 'endless') {
       this.updateFreeRoam(dt);
+    } else if (gameState.mode === 'multiplayer') {
+      this.updateMultiplayer(dt);
     } else if (gameState.mode === 'race') {
       this.updateRace(dt);
     }
@@ -520,7 +758,7 @@ export class Game {
     });
     this.resolveWorldCollisions(this.player);
     this.resolveVehicleCollisions();
-    this.clampToBounds(this.player);
+    if (gameState.mode !== 'endless') this.clampToBounds(this.player);
     this.updateChaseCamera(dt);
     this.updateSun();
     this.syncGameState();
@@ -562,6 +800,63 @@ export class Game {
     }
     this.syncGameState();
     this.ui.updateHud();
+  }
+
+  private updateMultiplayer(dt: number): void {
+    const input = this.input;
+    this.player.update(dt, {
+      throttle: Math.max(0, input.moveZ),
+      brake: Math.max(0, -input.moveZ),
+      steer: input.moveX,
+      handbrake: input.handbrake,
+    });
+    this.resolveWorldCollisions(this.player);
+    this.resolveVehicleCollisions();
+    this.clampToBounds(this.player);
+    this.updateRemoteVehicles(dt);
+
+    this.multiplayerStateTimer -= dt;
+    if (this.multiplayerStateTimer <= 0) {
+      this.multiplayerStateTimer = 1 / 15;
+      this.multiplayerClient.sendState({
+        x: this.player.x,
+        z: this.player.z,
+        heading: this.player.heading,
+        speedMs: this.player.getSpeedMs(),
+        vehicleId: this.player.spec.id,
+        color: this.player.spec.color,
+      });
+    }
+    this.updateChaseCamera(dt);
+    this.updateSun();
+    this.syncGameState();
+    this.audio.updateEngine(
+      this.player.getRpmRatio(),
+      this.player.rpm,
+      Math.max(0, input.moveZ),
+    );
+    this.ui.updateHud();
+  }
+
+  private updateRemoteVehicles(dt: number): void {
+    for (const [id, vehicle] of this.remoteVehicles) {
+      const target = this.remoteTargets.get(id);
+      if (!target) continue;
+      const smooth = 1 - Math.exp(-12 * dt);
+      vehicle.x += (target.x - vehicle.x) * smooth;
+      vehicle.z += (target.z - vehicle.z) * smooth;
+      vehicle.heading += this.lerpAngleDelta(vehicle.heading, target.heading) * smooth;
+      vehicle.speed = target.speedMs;
+      vehicle.setKinematic(vehicle.x, vehicle.z, vehicle.heading, vehicle.speed);
+      vehicle.rollWheels(dt);
+    }
+  }
+
+  private lerpAngleDelta(from: number, to: number): number {
+    let delta = to - from;
+    while (delta > Math.PI) delta -= Math.PI * 2;
+    while (delta < -Math.PI) delta += Math.PI * 2;
+    return delta;
   }
 
   private syncGameState(): void {
@@ -676,7 +971,14 @@ export class Game {
       eventBus.emit(Events.VEHICLE_COLLISION, { intensity });
       this.audio.playCollision(intensity);
     };
-    for (const box of this.city.buildingColliders) {
+    this.ensureCollisionGrids();
+    const queryRadius = radius + 2;
+    for (const box of queryAabbGrid(
+      this.buildingGrid as AabbGrid,
+      vehicle.x,
+      vehicle.z,
+      queryRadius,
+    )) {
       const closestX = Math.max(box.minX, Math.min(vehicle.x, box.maxX));
       const closestZ = Math.max(box.minZ, Math.min(vehicle.z, box.maxZ));
       const dx = vehicle.x - closestX;
@@ -724,7 +1026,12 @@ export class Game {
         emitCollision(Math.min(1, -vn / 12));
       }
     }
-    for (const tree of this.city.treeColliders) {
+    for (const tree of queryCircleGrid(
+      this.treeGrid as CircleGrid,
+      vehicle.x,
+      vehicle.z,
+      queryRadius,
+    )) {
       const dx = vehicle.x - tree.x;
       const dz = vehicle.z - tree.z;
       const minDist = radius + tree.radius;
@@ -794,6 +1101,21 @@ export class Game {
     }
   }
 
+  private ensureCollisionGrids(): void {
+    if (
+      this.collisionGridCity === this.city &&
+      this.colliderGridRevision === this.city.revision &&
+      this.buildingGrid &&
+      this.treeGrid
+    ) {
+      return;
+    }
+    this.buildingGrid = buildAabbGrid(this.city.buildingColliders, 40);
+    this.treeGrid = buildCircleGrid(this.city.treeColliders, 32);
+    this.collisionGridCity = this.city;
+    this.colliderGridRevision = this.city.revision;
+  }
+
   private resolveVehicleCollisions(): void {
     const others: ColliderBody[] = [
       ...this.traffic.getNpcs(),
@@ -802,6 +1124,12 @@ export class Game {
         z: racer.vehicle.z,
         radius: racer.vehicle.spec.width / 2 + PHYSICS.CAR_RADIUS_PADDING,
         vehicle: racer.vehicle,
+      })),
+      ...[...this.remoteVehicles.values()].map((vehicle) => ({
+        x: vehicle.x,
+        z: vehicle.z,
+        radius: vehicle.spec.width / 2 + PHYSICS.CAR_RADIUS_PADDING,
+        vehicle,
       })),
     ];
     for (const other of others) {
@@ -872,7 +1200,13 @@ export class Game {
     highQuality = true,
   ): PlayerVehicle {
     const spec = VEHICLES.find((v) => v.id === vehicleId) ?? VEHICLES[0];
-    return new PlayerVehicle(spec, color, this.scene, castShadows, highQuality);
+    const vehicle = new PlayerVehicle(spec, color, this.scene, castShadows, highQuality);
+    void attachExternalVehicleModel(
+      vehicle.visuals,
+      `/models/vehicles/${spec.id}.glb`,
+      spec,
+    );
+    return vehicle;
   }
 
   private setShowcaseVisible(visible: boolean): void {
@@ -914,6 +1248,154 @@ export class Game {
     });
   }
 
+  setQuality(preset: QualityPreset): void {
+    gameState.setQuality(preset);
+    if (preset === 'auto') {
+      const lowPowerRender =
+        typeof navigator !== 'undefined' && navigator.webdriver === true;
+      this.quality = lowPowerRender ? 'low' : 'medium';
+    } else {
+      this.quality = preset;
+    }
+    this.applyQuality();
+    eventBus.emit(Events.QUALITY_CHANGED, { quality: this.quality });
+  }
+
+  private applyQuality(): void {
+    const config = QUALITY_PRESETS[this.quality];
+    this.renderScale = 1;
+    this.adaptiveScaleTimer = 0;
+    this.adaptiveScaleSamples = 0;
+    this.adaptiveScaleFrameMs = 0;
+    this.renderer.setPixelRatio(
+      Math.min(window.devicePixelRatio, config.pixelRatio),
+    );
+    this.renderer.shadowMap.enabled = config.shadowMapSize > 0;
+    this.renderer.shadowMap.type = config.pcfSoft
+      ? THREE.PCFSoftShadowMap
+      : THREE.PCFShadowMap;
+    this.sun.castShadow = config.shadowMapSize > 0;
+    this.sun.shadow.mapSize.set(
+      config.shadowMapSize,
+      config.shadowMapSize,
+    );
+    if (config.bloom) {
+      if (!this.composer) {
+        this.composer = new EffectComposer(this.renderer);
+        this.composer.addPass(new RenderPass(this.scene, this.camera));
+        this.bloomPass = new UnrealBloomPass(
+          new THREE.Vector2(window.innerWidth, window.innerHeight),
+          0.32,
+          0.7,
+          0.85,
+        );
+        this.composer.addPass(this.bloomPass);
+        this.composer.addPass(new OutputPass());
+      }
+      if (config.ssao) {
+        if (!this.ssaoPass) {
+          this.ssaoPass = new SSAOPass(
+            this.scene,
+            this.camera,
+            window.innerWidth,
+            window.innerHeight,
+          );
+          const outputIndex = this.composer.passes.length - 1;
+          this.composer.passes.splice(outputIndex, 0, this.ssaoPass);
+        }
+        this.ssaoPass.enabled = true;
+      } else if (this.ssaoPass) {
+        this.ssaoPass.enabled = false;
+      }
+      this.composer.setSize(window.innerWidth, window.innerHeight);
+    } else if (this.composer) {
+      this.composer.dispose();
+      this.composer = null;
+      this.bloomPass = null;
+      this.ssaoPass = null;
+    }
+  }
+
+  private subscribeMultiplayerEvents(): void {
+    eventBus.on(Events.MULTIPLAYER_CONNECTED, (data) => {
+      const payload = data as { username: string; rooms: unknown[] } | undefined;
+      if (!payload) return;
+      gameState.multiplayer.connected = true;
+      gameState.multiplayer.connecting = false;
+      gameState.multiplayer.username = payload.username;
+      gameState.multiplayer.rooms = payload.rooms as RoomInfo[];
+      this.ui.refreshMultiplayer();
+    });
+    eventBus.on(Events.MULTIPLAYER_ROOMS, (data) => {
+      const payload = data as { rooms: unknown[] } | undefined;
+      if (!payload) return;
+      gameState.multiplayer.rooms = payload.rooms as RoomInfo[];
+      this.ui.refreshMultiplayer();
+    });
+    eventBus.on(Events.MULTIPLAYER_JOINED, (data) => {
+      const payload = data as { room: RoomInfo } | undefined;
+      if (!payload) return;
+      const room = payload.room;
+      gameState.multiplayer.roomId = room.id;
+      gameState.multiplayer.roomName = room.name;
+      gameState.multiplayer.isHost = room.hostName === gameState.multiplayer.username;
+      gameState.multiplayer.players = room.players;
+      this.ui.refreshMultiplayer();
+    });
+    eventBus.on(Events.MULTIPLAYER_GAME_STARTED, (data) => {
+      const payload = data as { room: RoomInfo } | undefined;
+      if (!payload) return;
+      gameState.multiplayer.roomId = payload.room.id;
+      gameState.multiplayer.roomName = payload.room.name;
+      gameState.multiplayer.isHost = payload.room.hostName === gameState.multiplayer.username;
+      gameState.multiplayer.players = payload.room.players;
+      this.startMultiplayer();
+    });
+    eventBus.on(Events.MULTIPLAYER_STATE, (data) => {
+      const payload = data as { players: RoomInfo['players'] } | undefined;
+      if (!payload) return;
+      gameState.multiplayer.players = payload.players;
+      this.syncRemoteVehicles(payload.players);
+      this.ui.refreshMultiplayer();
+    });
+  }
+
+  private syncRemoteVehicles(players: RoomInfo['players']): void {
+    const seen = new Set<string>();
+    for (const player of players) {
+      if (player.username === gameState.multiplayer.username) continue;
+      seen.add(player.id);
+      this.remoteTargets.set(player.id, {
+        x: player.x,
+        z: player.z,
+        heading: player.heading,
+        speedMs: player.speedMs,
+      });
+      let vehicle = this.remoteVehicles.get(player.id);
+      if (!vehicle) {
+        const spec = VEHICLES.find((v) => v.id === player.vehicleId) ?? VEHICLES[0];
+        vehicle = this.createPlayer(spec.id, player.color, true, false);
+        vehicle.visuals.group.visible = true;
+        this.remoteVehicles.set(player.id, vehicle);
+      }
+    }
+    for (const id of [...this.remoteVehicles.keys()]) {
+      if (seen.has(id)) continue;
+      const vehicle = this.remoteVehicles.get(id);
+      if (vehicle) this.scene.remove(vehicle.visuals.group);
+      this.remoteVehicles.delete(id);
+      this.remoteTargets.delete(id);
+    }
+  }
+
+  private clearRemoteVehicles(): void {
+    for (const vehicle of this.remoteVehicles.values()) {
+      this.scene.remove(vehicle.visuals.group);
+    }
+    this.remoteVehicles.clear();
+    this.remoteTargets.clear();
+  }
+
   private clearAiVehicles(): void {
     for (const vehicle of this.aiVehicles) {
       this.scene.remove(vehicle.visuals.group);
@@ -943,5 +1425,6 @@ export class Game {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.composer?.setSize(window.innerWidth, window.innerHeight);
   };
 }

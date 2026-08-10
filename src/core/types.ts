@@ -1,10 +1,45 @@
-export type GameMode = 'menu' | 'garage' | 'freeRoam' | 'race';
+export type GameMode = 'menu' | 'garage' | 'freeRoam' | 'endless' | 'race' | 'lobby' | 'multiplayer';
 export type RacePhase = 'idle' | 'countdown' | 'racing' | 'finished';
 export type Difficulty = 'easy' | 'normal' | 'hard';
 export type BodyStyle = 'sedan' | 'coupe' | 'suv' | 'pickup' | 'taxi' | 'police';
 export type CameraMode = 'chase' | 'hood';
 export type ControlMode = 'mobile' | 'desktop';
 export type Density = 'low' | 'medium' | 'high';
+export type MapMode = 'finite' | 'endless';
+export type QualityPreset = 'auto' | 'high' | 'medium' | 'low';
+
+export interface MultiplayerPlayer {
+  id: string;
+  username: string;
+  vehicleId: string;
+  color: string;
+  x: number;
+  z: number;
+  heading: number;
+  speedMs: number;
+  isHost: boolean;
+}
+
+export interface RoomInfo {
+  id: string;
+  name: string;
+  hostId: string;
+  hostName: string;
+  players: MultiplayerPlayer[];
+  maxPlayers: number;
+  status: 'lobby' | 'playing';
+}
+
+export interface MultiplayerState {
+  connected: boolean;
+  connecting: boolean;
+  username: string;
+  roomId: string | null;
+  roomName: string;
+  isHost: boolean;
+  rooms: RoomInfo[];
+  players: MultiplayerPlayer[];
+}
 
 export interface VehicleSpec {
   id: string;
@@ -59,6 +94,7 @@ export interface SavedProgress {
   sfxVolume: number;
   controlMode: ControlMode;
   density: Density;
+  quality: QualityPreset;
 }
 
 export interface PlayerState {

@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { Reflector } from 'three/addons/objects/Reflector.js';
 import { COLORS, RACE_CONFIG, TREE_COLLIDER_RADIUS, WORLD } from '../core/Constants';
-import type { Aabb, CircleCollider, LaneInfo } from '../core/types';
+import type { Aabb, CircleCollider, LaneInfo, QualityPreset } from '../core/types';
 
 export interface CityIntersection {
   index: number;
@@ -31,6 +32,7 @@ export interface City {
   raceStartHeading: number;
   bounds: Aabb;
   raceProps: THREE.Group;
+  revision: number;
   setRacePropsVisible(visible: boolean): void;
   lightGreen(axis: 'x' | 'z', timeSec: number, nodeIndex: number): boolean;
   updateSignals(timeSec: number): void;
@@ -72,7 +74,8 @@ function makeInstanced(
   return mesh;
 }
 
-export function buildCity(scene: THREE.Scene): City {
+export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPreset }): City {
+  const useReflector = options?.quality === 'high';
   const group = new THREE.Group();
   const N = WORLD.GRID_SIZE;
   const B = WORLD.BLOCK_LENGTH;
@@ -285,17 +288,24 @@ export function buildCity(scene: THREE.Scene): City {
     roughness: 0.9,
   });
 
-  const riverWidth = 22;
-  const riverLength = MAP_SIZE + 60;
+  const riverWidth = WORLD.RIVER_WIDTH;
+  const riverLength = MAP_SIZE + WORLD.RIVER_LENGTH_PADDING;
   const riverCenterX = MAP_SIZE / 2;
   const riverBedWidth = riverWidth - 6;
   const waterBaseY = -0.14;
-  const river = new THREE.Mesh(
-    new THREE.PlaneGeometry(riverLength, riverBedWidth),
-    waterMaterial,
-  );
+  const river = useReflector
+    ? new Reflector(new THREE.PlaneGeometry(riverLength, riverBedWidth), {
+        color: 0x2f7fa8,
+        textureWidth: 512,
+        textureHeight: 256,
+        clipBias: 0.003,
+      })
+    : new THREE.Mesh(
+        new THREE.PlaneGeometry(riverLength, riverBedWidth),
+        waterMaterial,
+      );
   river.rotation.x = -Math.PI / 2;
-  river.position.set(riverCenterX, waterBaseY, 460);
+  river.position.set(riverCenterX, waterBaseY, WORLD.RIVER_Z);
   river.name = 'river';
   river.receiveShadow = true;
   group.add(river);
@@ -307,7 +317,7 @@ export function buildCity(scene: THREE.Scene): City {
       roughness: 1,
     }),
   );
-  riverbed.position.set(riverCenterX, -0.62, 460);
+  riverbed.position.set(riverCenterX, -0.62, WORLD.RIVER_Z);
   riverbed.name = 'riverbed';
   riverbed.receiveShadow = true;
   group.add(riverbed);
@@ -319,7 +329,7 @@ export function buildCity(scene: THREE.Scene): City {
     slope.position.set(
       riverCenterX,
       -0.19,
-      460 + side * (riverBedWidth / 2 + 1.7),
+      WORLD.RIVER_Z + side * (riverBedWidth / 2 + 1.7),
     );
     slope.rotation.x = side * -0.11;
     slope.name = 'river-bank';
@@ -329,16 +339,17 @@ export function buildCity(scene: THREE.Scene): City {
       new THREE.BoxGeometry(riverLength, 0.08, 3.2),
       bankMaterial,
     );
-    bank.position.set(riverCenterX, 0.045, 460 + side * (riverWidth / 2 + 2));
+    bank.position.set(riverCenterX, 0.045, WORLD.RIVER_Z + side * (riverWidth / 2 + 2));
     group.add(bank);
   }
 
-  for (const bridgeX of [0, B, B * 2, B * 3, B * 4, B * 5, MAP_SIZE]) {
+  for (let i = 0; i <= N; i += 1) {
+    const bridgeX = i * B;
     const bridge = new THREE.Mesh(
       new THREE.BoxGeometry(WORLD.ROAD_WIDTH, 0.22, 72),
       asphaltMaterial,
     );
-    bridge.position.set(bridgeX, 0.16, 450);
+    bridge.position.set(bridgeX, 0.16, WORLD.RIVER_Z);
     bridge.name = 'bridge';
     bridge.receiveShadow = true;
     group.add(bridge);
@@ -347,7 +358,11 @@ export function buildCity(scene: THREE.Scene): City {
         new THREE.BoxGeometry(0.18, 1.1, 72),
         highwayMaterial,
       );
-      rail.position.set(bridgeX + side * (WORLD.ROAD_WIDTH / 2 + 1.1), 0.75, 450);
+      rail.position.set(
+        bridgeX + side * (WORLD.ROAD_WIDTH / 2 + 1.1),
+        0.75,
+        WORLD.RIVER_Z,
+      );
       group.add(rail);
     }
   }
@@ -774,6 +789,7 @@ export function buildCity(scene: THREE.Scene): City {
     x: number;
     z: number;
     axis: 'x' | 'z';
+    nodeIndex: number;
   }[][] = Array.from({ length: CHUNK_COUNT }, () => []);
   for (const node of intersections) {
     if (node.x >= CITY_MAX_X - 10) continue;
@@ -781,11 +797,13 @@ export function buildCity(scene: THREE.Scene): City {
       x: node.x - 6.5,
       z: node.z + 6.5,
       axis: 'x',
+      nodeIndex: node.index,
     });
     signalInstances[chunkIndexAt(node.x + 6.5, node.z - 6.5)].push({
       x: node.x + 6.5,
       z: node.z - 6.5,
       axis: 'z',
+      nodeIndex: node.index,
     });
   }
 
@@ -829,7 +847,7 @@ export function buildCity(scene: THREE.Scene): City {
     red: THREE.InstancedMesh;
     yellow: THREE.InstancedMesh;
     green: THREE.InstancedMesh;
-    instances: { x: number; z: number; axis: 'x' | 'z' }[];
+    instances: { x: number; z: number; axis: 'x' | 'z'; nodeIndex: number }[];
   }[] = [];
 
   const chunks: THREE.Group[] = [];
@@ -845,6 +863,7 @@ export function buildCity(scene: THREE.Scene): City {
       );
       buildingMesh.name = 'buildings';
       buildingMesh.receiveShadow = true;
+      buildingMesh.castShadow = true;
       for (let i = 0; i < chunkBuildings.length; i += 1) {
         buildingMesh.setMatrixAt(i, chunkBuildings[i]);
         buildingMesh.setColorAt(i, buildingColors[c][i]);
@@ -863,6 +882,7 @@ export function buildCity(scene: THREE.Scene): City {
       );
       roofMesh.name = 'building-roofs';
       roofMesh.receiveShadow = true;
+      roofMesh.castShadow = true;
       for (let i = 0; i < chunkRoofs.length; i += 1) {
         roofMesh.setMatrixAt(i, chunkRoofs[i]);
         roofMesh.setColorAt(i, roofColors[c][i]);
@@ -1117,10 +1137,7 @@ export function buildCity(scene: THREE.Scene): City {
     for (const signalChunk of signalChunks) {
       for (let i = 0; i < signalChunk.instances.length; i += 1) {
         const signal = signalChunk.instances[i];
-        const nodeIndex = intersections.findIndex(
-          (n) => Math.abs(n.x - signal.x) < 7 && Math.abs(n.z - signal.z) < 7,
-        );
-        const offset = (nodeIndex % 7) * 1.6;
+        const offset = (signal.nodeIndex % 7) * 1.6;
         const t = (timeSec + offset) % WORLD.LIGHT_CYCLE;
         const green =
           signal.axis === 'x'
@@ -1167,7 +1184,9 @@ export function buildCity(scene: THREE.Scene): City {
 
   const updateWater = (timeSec: number): void => {
     river.position.y = waterBaseY + Math.sin(timeSec * 0.9) * 0.025;
-    waterMaterial.opacity = 0.84 + Math.sin(timeSec * 1.4) * 0.06;
+    if (!useReflector) {
+      waterMaterial.opacity = 0.84 + Math.sin(timeSec * 1.4) * 0.06;
+    }
   };
 
   const raceProps = new THREE.Group();
@@ -1411,6 +1430,7 @@ export function buildCity(scene: THREE.Scene): City {
     raceStartHeading: Math.PI / 2,
     bounds: { minX: 0, maxX: MAP_SIZE, minZ: 0, maxZ: MAP_SIZE },
     raceProps,
+    revision: 0,
     setRacePropsVisible,
     lightGreen: lightGreenFor,
     updateSignals,

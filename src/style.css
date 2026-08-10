@@ -860,6 +860,102 @@ button,
   }
 }
 
+.multiplayer-panel,
+.lobby-panel {
+  width: min(520px, 92vw);
+}
+
+.multiplayer-status,
+.multiplayer-username {
+  display: block;
+  margin-bottom: 10px;
+  color: #9aa7b4;
+  font-size: 13px;
+  letter-spacing: 0;
+}
+
+.multiplayer-create {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.multiplayer-name-input {
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  background: rgba(10, 14, 18, 0.72);
+  color: #eef3f7;
+  font-size: 14px;
+  outline: none;
+}
+
+.multiplayer-name-input:focus {
+  border-color: rgba(255, 181, 69, 0.7);
+}
+
+.multiplayer-rooms {
+  display: grid;
+  gap: 10px;
+  max-height: 42vh;
+  overflow-y: auto;
+  margin-bottom: 16px;
+}
+
+.room-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.room-card-info {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.room-name {
+  color: #eef3f7;
+  font-size: 15px;
+}
+
+.room-meta {
+  color: #8e9aa6;
+  font-size: 12px;
+}
+
+.lobby-players {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0;
+}
+
+.lobby-player {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.lobby-player-name {
+  color: #eef3f7;
+}
+
+.lobby-host {
+  color: #ffb545;
+  font-size: 12px;
+}
+
 @media (max-width: 640px) {
   .menu-panel {
     min-width: 0;

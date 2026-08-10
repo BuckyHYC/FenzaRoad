@@ -1,7 +1,7 @@
-import type { Density, VehicleSpec } from './types';
+import type { Density, QualityPreset, VehicleSpec } from './types';
 
 export const WORLD = {
-  GRID_SIZE: 6,
+  GRID_SIZE: 8,
   BLOCK_LENGTH: 150,
   ROAD_WIDTH: 16,
   SIDEWALK_WIDTH: 3,
@@ -11,10 +11,73 @@ export const WORLD = {
   LIGHT_CYCLE: 16,
   LIGHT_GREEN: 8,
   LIGHT_YELLOW_START: 10,
-  CITY_MAX_X: 450,
-  VILLAGE_MAX_X: 675,
+  CITY_MAX_X: 600,
+  VILLAGE_MAX_X: 900,
   SPAWN_X: 300,
   SPAWN_Z: 450,
+  RIVER_Z: 600,
+  RIVER_WIDTH: 22,
+  RIVER_LENGTH_PADDING: 120,
+  ENDLESS_CHUNK_SIZE: 300,
+  ENDLESS_WINDOW: 5,
+} as const;
+
+export const QUALITY_PRESETS: Record<
+  QualityPreset,
+  {
+    pixelRatio: number;
+    antialias: boolean;
+    shadowMapSize: number;
+    pcfSoft: boolean;
+    bloom: boolean;
+    ssao: boolean;
+    reflector: boolean;
+  }
+> = {
+  low: {
+    pixelRatio: 1,
+    antialias: false,
+    shadowMapSize: 0,
+    pcfSoft: false,
+    bloom: false,
+    ssao: false,
+    reflector: false,
+  },
+  medium: {
+    pixelRatio: 1.25,
+    antialias: true,
+    shadowMapSize: 2048,
+    pcfSoft: true,
+    bloom: true,
+    ssao: false,
+    reflector: false,
+  },
+  high: {
+    pixelRatio: 1.5,
+    antialias: true,
+    shadowMapSize: 4096,
+    pcfSoft: true,
+    bloom: true,
+    ssao: true,
+    reflector: true,
+  },
+  auto: {
+    pixelRatio: 1.25,
+    antialias: true,
+    shadowMapSize: 2048,
+    pcfSoft: true,
+    bloom: true,
+    ssao: false,
+    reflector: false,
+  },
+} as const;
+
+export const MULTIPLAYER_CONFIG = {
+  SERVER_PATH: '/multiplayer',
+  MAX_PLAYERS: 8,
+  TICK_HZ: 15,
+  ROOM_REFRESH_MS: 1000,
+  USERNAME_PREFIX: '城市司机',
 } as const;
 
 export const PHYSICS = {

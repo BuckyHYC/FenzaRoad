@@ -5,7 +5,10 @@ import type {
   GameMode,
   ControlMode,
   Density,
+  MapMode,
+  MultiplayerState,
   PlayerState,
+  QualityPreset,
   RaceState,
   SavedProgress,
 } from './types';
@@ -23,6 +26,7 @@ function emptySaved(): SavedProgress {
     sfxVolume: 0.8,
     controlMode: touchDevice ? 'mobile' : 'desktop',
     density: 'low',
+    quality: 'auto',
   };
 }
 
@@ -57,6 +61,13 @@ function loadSaved(): SavedProgress {
       parsed.density === 'low' || parsed.density === 'medium' || parsed.density === 'high'
         ? parsed.density
         : base.density;
+    const quality: QualityPreset =
+      parsed.quality === 'high' ||
+      parsed.quality === 'medium' ||
+      parsed.quality === 'low' ||
+      parsed.quality === 'auto'
+        ? parsed.quality
+        : base.quality;
     const bgmVolume = clampVolume(parsed.bgmVolume, base.bgmVolume);
     const sfxVolume = clampVolume(parsed.sfxVolume, base.sfxVolume);
     return {
@@ -71,6 +82,7 @@ function loadSaved(): SavedProgress {
       sfxVolume,
       controlMode,
       density,
+      quality,
     };
   } catch {
     return emptySaved();
@@ -80,6 +92,17 @@ function loadSaved(): SavedProgress {
 class GameState {
   mode: GameMode = 'menu';
   paused = false;
+  mapMode: MapMode = 'finite';
+  multiplayer: MultiplayerState = {
+    connected: false,
+    connecting: false,
+    username: '',
+    roomId: null,
+    roomName: '',
+    isHost: false,
+    rooms: [],
+    players: [],
+  };
   player: PlayerState = {
     vehicleId: DEFAULT_VEHICLE_ID,
     color: VEHICLES[0].color,
@@ -109,6 +132,7 @@ class GameState {
     sfxVolume: 0.8,
     controlMode: 'desktop' as ControlMode,
     density: 'low' as Density,
+    quality: 'auto' as QualityPreset,
   };
   saved: SavedProgress;
 
@@ -119,6 +143,7 @@ class GameState {
     this.settings.sfxVolume = this.saved.sfxVolume;
     this.settings.controlMode = this.saved.controlMode;
     this.settings.density = this.saved.density;
+    this.settings.quality = this.saved.quality;
     this.player.vehicleId = this.saved.selectedVehicleId;
     this.player.color = this.saved.selectedColor;
   }
@@ -135,6 +160,15 @@ class GameState {
 
   setDifficulty(difficulty: Difficulty): void {
     this.race.difficulty = difficulty;
+  }
+
+  setMapMode(mode: MapMode): void {
+    this.mapMode = mode;
+  }
+
+  setQuality(quality: QualityPreset): void {
+    this.settings.quality = quality;
+    this.save();
   }
 
   resetRun(): void {
@@ -155,6 +189,7 @@ class GameState {
     this.saved.sfxVolume = this.settings.sfxVolume;
     this.saved.controlMode = this.settings.controlMode;
     this.saved.density = this.settings.density;
+    this.saved.quality = this.settings.quality;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(this.saved));
     } catch {

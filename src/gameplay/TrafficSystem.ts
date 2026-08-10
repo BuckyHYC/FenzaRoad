@@ -35,7 +35,7 @@ interface Outgoing {
 
 export class TrafficSystem {
   private readonly npcs: Npc[] = [];
-  private readonly city: City;
+  private city: City;
   private readonly scene: THREE.Scene;
   private spawnTimer = 0;
   private active = false;
@@ -48,6 +48,11 @@ export class TrafficSystem {
   setActive(active: boolean): void {
     this.active = active;
     if (!active) this.clear();
+  }
+
+  setCity(city: City): void {
+    this.city = city;
+    this.clear();
   }
 
   clear(): void {

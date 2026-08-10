@@ -1,7 +1,13 @@
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DENSITY_CONFIG, PEDESTRIAN_CONFIG } from '../core/Constants';
 import { gameState } from '../core/GameState';
 import type { City } from '../level/CityBuilder';
+import {
+  buildCircleGrid,
+  queryCircleGrid,
+  type CircleGrid,
+} from './SpatialGrid';
 
 export interface PedestrianCollider {
   x: number;
@@ -34,9 +40,128 @@ interface Pedestrian {
 
 const SHIRT_COLORS = ['#e8503a', '#3a7bd5', '#e0a63a', '#4a9e5c', '#b3548f', '#f2f2f2'];
 const PANTS_COLORS = ['#2c3e50', '#4a3b32', '#20242b'];
+const PEDESTRIAN_MODEL_URLS = [
+  '/models/pedestrians/readyplayer.glb',
+  '/models/pedestrians/soldier.glb',
+];
+
+interface PedestrianBones {
+  leftLeg: THREE.Bone[];
+  rightLeg: THREE.Bone[];
+  leftArm: THREE.Bone[];
+  rightArm: THREE.Bone[];
+}
 
 const materialCache = new Map<string, THREE.Material>();
 const partGeometryCache = new Map<string, THREE.BufferGeometry>();
+const pedestrianGltfCache = new Map<string, Promise<THREE.Group>>();
+
+function loadPedestrianScene(url: string): Promise<THREE.Group> {
+  let pending = pedestrianGltfCache.get(url);
+  if (!pending) {
+    pending = new Promise((resolve, reject) => {
+      const loader = new GLTFLoader();
+      loader.load(
+        url,
+        (gltf) => resolve(gltf.scene),
+        undefined,
+        (error) => reject(error),
+      );
+    });
+    pedestrianGltfCache.set(url, pending);
+  }
+  return pending;
+}
+
+function collectPedestrianBones(root: THREE.Object3D): PedestrianBones {
+  const bones: PedestrianBones = {
+    leftLeg: [],
+    rightLeg: [],
+    leftArm: [],
+    rightArm: [],
+  };
+  root.traverse((node) => {
+    if (!(node instanceof THREE.Bone)) return;
+    const name = node.name.toLowerCase();
+    const isLeft = name.includes('left');
+    const isRight = name.includes('right');
+    if (
+      /(upleg|thigh|upperleg|upper_leg)/.test(name) ||
+      (name.includes('leg') && name.includes('upper'))
+    ) {
+      if (isLeft) bones.leftLeg.push(node);
+      else if (isRight) bones.rightLeg.push(node);
+      return;
+    }
+    if (
+      /(shoulder|upperarm|upper_arm)/.test(name) ||
+      (/arm$/.test(name) && !name.includes('fore'))
+    ) {
+      if (isLeft) bones.leftArm.push(node);
+      else if (isRight) bones.rightArm.push(node);
+    }
+  });
+  return bones;
+}
+
+function resetPedestrianBones(bones: PedestrianBones | undefined): void {
+  if (!bones) return;
+  for (const list of [
+    bones.leftLeg,
+    bones.rightLeg,
+    bones.leftArm,
+    bones.rightArm,
+  ]) {
+    for (const bone of list) {
+      bone.rotation.x = 0;
+    }
+  }
+}
+
+function animatePedestrianBones(
+  bones: PedestrianBones | undefined,
+  stride: number,
+  amplitude: number,
+): void {
+  if (!bones) return;
+  const legAmp = amplitude * 0.85;
+  const armAmp = amplitude * 0.6;
+  if (bones.leftLeg[0]) bones.leftLeg[0].rotation.x = stride * legAmp;
+  if (bones.rightLeg[0]) bones.rightLeg[0].rotation.x = -stride * legAmp;
+  if (bones.leftArm[0]) bones.leftArm[0].rotation.x = -stride * armAmp;
+  if (bones.rightArm[0]) bones.rightArm[0].rotation.x = stride * armAmp;
+}
+
+async function attachPedestrianModel(group: THREE.Group): Promise<void> {
+  const url = PEDESTRIAN_MODEL_URLS[Math.floor(Math.random() * PEDESTRIAN_MODEL_URLS.length)];
+  try {
+    const source = await loadPedestrianScene(url);
+    const root = source.clone(true);
+    const box = new THREE.Box3().setFromObject(root);
+    const size = box.getSize(new THREE.Vector3());
+    if (size.y < 1e-4) return;
+    const scale = 1.7 / size.y;
+    root.scale.setScalar(scale);
+    root.updateMatrixWorld(true);
+    const fitted = new THREE.Box3().setFromObject(root);
+    const center = fitted.getCenter(new THREE.Vector3());
+    root.position.x -= center.x;
+    root.position.z -= center.z;
+    root.position.y -= fitted.min.y;
+    root.traverse((node) => {
+      if (node instanceof THREE.Mesh) {
+        node.castShadow = true;
+        node.receiveShadow = false;
+      }
+    });
+    group.userData.externalRoot = root;
+    group.userData.bones = collectPedestrianBones(root);
+    group.userData.proceduralModel.visible = false;
+    group.add(root);
+  } catch {
+    // Keep the procedural pedestrian when the model is unavailable.
+  }
+}
 
 function material(key: string, create: () => THREE.Material): THREE.Material {
   let cached = materialCache.get(key);
@@ -161,17 +286,22 @@ function buildPedestrian(): THREE.Group {
 
   model.add(body, leftLegPivot, rightLegPivot, armPivot, headGroup);
   group.add(model);
+  group.userData.proceduralModel = model;
   group.userData.leftLegPivot = leftLegPivot;
   group.userData.rightLegPivot = rightLegPivot;
   group.userData.armPivot = armPivot;
   group.userData.headGroup = headGroup;
+  void attachPedestrianModel(group);
   return group;
 }
 
 export class PedestrianSystem {
   private readonly pedestrians: Pedestrian[] = [];
-  private readonly city: City;
+  private city: City;
   private readonly scene: THREE.Scene;
+  private treeGrid: CircleGrid | null = null;
+  private treeGridCity: City | null = null;
+  private treeGridRevision = -1;
   private spawnTimer = 0;
   private active = false;
 
@@ -183,6 +313,14 @@ export class PedestrianSystem {
   setActive(active: boolean): void {
     this.active = active;
     if (!active) this.clear();
+  }
+
+  setCity(city: City): void {
+    this.city = city;
+    this.treeGrid = null;
+    this.treeGridCity = null;
+    this.treeGridRevision = -1;
+    this.clear();
   }
 
   clear(): void {
@@ -268,7 +406,13 @@ export class PedestrianSystem {
       rz * (ped.side * PEDESTRIAN_CONFIG.SIDEWALK_OFFSET + ped.jitter);
     ped.heading = Math.atan2(ux * ped.direction, uz * ped.direction);
     ped.phase += dt * 5.2 * (0.75 + ped.speed * 0.3);
-    for (const tree of this.city.treeColliders) {
+    this.ensureTreeGrid();
+    for (const tree of queryCircleGrid(
+      this.treeGrid as CircleGrid,
+      ped.x,
+      ped.z,
+      3,
+    )) {
       const tdx = ped.x - tree.x;
       const tdz = ped.z - tree.z;
       const minDist = ped.radius + tree.radius;
@@ -278,6 +422,19 @@ export class PedestrianSystem {
       ped.x += (tdx / dist) * (minDist - dist);
       ped.z += (tdz / dist) * (minDist - dist);
     }
+  }
+
+  private ensureTreeGrid(): void {
+    if (
+      this.treeGridCity === this.city &&
+      this.treeGridRevision === this.city.revision &&
+      this.treeGrid
+    ) {
+      return;
+    }
+    this.treeGrid = buildCircleGrid(this.city.treeColliders, 28);
+    this.treeGridCity = this.city;
+    this.treeGridRevision = this.city.revision;
   }
 
   private checkVehicleCollisions(
@@ -312,9 +469,15 @@ export class PedestrianSystem {
       group.userData.rightLegPivot.rotation.x = 0;
       group.userData.armPivot.rotation.x = 0;
       group.userData.headGroup.rotation.z = 0;
+      resetPedestrianBones(group.userData.bones as PedestrianBones | undefined);
     } else {
       const stride = ped.moving ? Math.sin(ped.phase) : 0;
       const amplitude = ped.moving ? 0.62 : 0;
+      animatePedestrianBones(
+        group.userData.bones as PedestrianBones | undefined,
+        stride,
+        amplitude,
+      );
       group.userData.leftLegPivot.rotation.x = stride * amplitude;
       group.userData.rightLegPivot.rotation.x = -stride * amplitude;
       group.userData.armPivot.rotation.x = -stride * amplitude * 0.55;
@@ -331,6 +494,12 @@ export class PedestrianSystem {
         ped.moving ? Math.sin(ped.phase) * 0.025 : 0,
       );
       group.scale.setScalar(1);
+    }
+    const externalRoot = group.userData.externalRoot as THREE.Group | undefined;
+    if (externalRoot) {
+      externalRoot.position.y = Math.abs(Math.sin(ped.phase)) * 0.05;
+      externalRoot.rotation.x = ped.moving ? Math.sin(ped.phase) * 0.05 : 0;
+      externalRoot.rotation.z = ped.moving ? Math.cos(ped.phase) * 0.04 : 0;
     }
   }
 

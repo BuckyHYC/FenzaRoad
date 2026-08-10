@@ -7,6 +7,16 @@ export const Events = {
   VEHICLE_COLLISION: 'vehicle:collision',
   GARAGE_SELECTED: 'garage:selected',
   AUDIO_MUTE: 'audio:mute',
+  QUALITY_CHANGED: 'quality:changed',
+  MAP_MODE_CHANGED: 'map:mode-changed',
+  WORLD_REBUILT: 'world:rebuilt',
+  MULTIPLAYER_CONNECTED: 'multiplayer:connected',
+  MULTIPLAYER_DISCONNECTED: 'multiplayer:disconnected',
+  MULTIPLAYER_ROOMS: 'multiplayer:rooms',
+  MULTIPLAYER_JOINED: 'multiplayer:joined',
+  MULTIPLAYER_LEFT: 'multiplayer:left',
+  MULTIPLAYER_GAME_STARTED: 'multiplayer:game-started',
+  MULTIPLAYER_STATE: 'multiplayer:state',
 } as const;
 
 type EventListener = (data?: unknown) => void;
