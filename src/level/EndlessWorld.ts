@@ -639,6 +639,7 @@ export function buildEndlessWorld(scene: THREE.Scene): City {
     edges,
     lanes,
     buildingColliders,
+    boundaryColliders: [],
     treeColliders,
     raceBarriers: [],
     bounds: {
@@ -659,6 +660,8 @@ export function buildEndlessWorld(scene: THREE.Scene): City {
       startSlots: [],
       startHeading: Math.PI / 2,
       raceBarriers: [],
+      checkpointRadius: 22,
+      corridorWidth: 26,
     }),
     lightGreen: (axis: 'x' | 'z', timeSec: number, nodeIndex: number): boolean => {
       const offset = (nodeIndex % 7) * 1.6;

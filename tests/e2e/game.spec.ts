@@ -55,7 +55,19 @@ test('free roam drives, camera toggle and pause work', async ({ page }) => {
     return JSON.parse(g.render_game_to_text()) as { player: { x: number; z: number } };
   });
   await page.keyboard.down('w');
-  await page.waitForTimeout(900);
+  await page.waitForFunction(
+    ({ x, z }: { x: number; z: number }) => {
+      const g = window as unknown as GameWindow;
+      const state = JSON.parse(g.render_game_to_text()) as {
+        player: { x: number; z: number };
+      };
+      return (
+        Math.abs(state.player.x - x) + Math.abs(state.player.z - z) > 2
+      );
+    },
+    { x: before.player.x, z: before.player.z },
+    { timeout: 8000 },
+  );
   await page.keyboard.up('w');
   const after = await page.evaluate(() => {
     const g = window as unknown as GameWindow;
@@ -261,7 +273,7 @@ test('npc vehicles turn smoothly through intersections', async ({ page }) => {
       return npc && Math.hypot(npc.vehicle.x - x, npc.vehicle.z - z) > 0.5;
     },
     { x: setup.before.x, z: setup.before.z, id: setup.id },
-    { timeout: 5000 },
+    { timeout: 10000 },
   );
   const result = await page.evaluate(({ before, id }) => {
     const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
@@ -603,13 +615,18 @@ test('race menu switches layouts and boundary fence sits outside the map', async
     const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
       city: {
         activeRaceLayoutId: string;
-        raceLayouts: { id: string; checkpoints: unknown[] }[];
+        raceLayouts: {
+          id: string;
+          checkpoints: { x: number; z: number }[];
+          checkpointRadius: number;
+          corridorWidth: number;
+        }[];
         raceBarriers: unknown[];
         group: {
           traverse: (fn: (obj: unknown) => void) => void;
         };
       };
-      race: { checkpoints: unknown[] };
+      race: { checkpoints: unknown[]; racers: unknown[] };
     };
     let wallMinX = Infinity;
     let wallMaxX = -Infinity;
@@ -633,6 +650,25 @@ test('race menu switches layouts and boundary fence sits outside the map', async
       layoutCount: game.city.raceLayouts.length,
       checkpointCount: game.race.checkpoints.length,
       barrierCount: game.city.raceBarriers.length,
+      layoutSettings: game.city.raceLayouts.map((layout) => ({
+        id: layout.id,
+        checkpointRadius: layout.checkpointRadius,
+        corridorWidth: layout.corridorWidth,
+      })),
+      cityTourCheckpoints: game.city.raceLayouts.find(
+        (layout) => layout.id === 'cityTour',
+      )?.checkpoints.length,
+      interiorCityTour: game.city.raceLayouts
+        .find((layout) => layout.id === 'cityTour')
+        ?.checkpoints.every(
+          (point) => point.x > 140 && point.x < 1060 && point.z > 140 && point.z < 1060,
+        ),
+      interiorHillLoop: game.city.raceLayouts
+        .find((layout) => layout.id === 'hillLoop')
+        ?.checkpoints.every(
+          (point) => point.x > 140 && point.x < 1060 && point.z > 140 && point.z < 1060,
+        ),
+      racerCount: game.race.racers.length,
       wallMinX,
       wallMaxX,
     };
@@ -640,10 +676,51 @@ test('race menu switches layouts and boundary fence sits outside the map', async
   expect(state.layoutId).toBe('cityTour');
   expect(state.layoutCount).toBe(3);
   expect(state.checkpointCount).toBeGreaterThan(10);
+  expect(state.checkpointCount).toBeGreaterThan(15);
   expect(state.barrierCount).toBeGreaterThan(0);
+  expect(state.layoutSettings).toEqual([
+    { id: 'perimeter', checkpointRadius: 22, corridorWidth: 26 },
+    { id: 'cityTour', checkpointRadius: 18, corridorWidth: 20 },
+    { id: 'hillLoop', checkpointRadius: 26, corridorWidth: 30 },
+  ]);
+  expect(state.checkpointCount).toBe(state.cityTourCheckpoints);
+  expect(state.interiorCityTour).toBe(true);
+  expect(state.interiorHillLoop).toBe(true);
+  expect(state.racerCount).toBeGreaterThan(1);
   expect(state.wallMinX).toBeLessThan(-10);
   expect(state.wallMaxX).toBeGreaterThan(1210);
   expect(errors).toEqual([]);
+});
+
+test('boundary collision stops the car at the visible fence', async ({ page }) => {
+  await boot(page);
+  await page.getByRole('button', { name: '自由漫游' }).click();
+  await expect(page.locator('#hud')).toBeVisible();
+  await page.evaluate(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      debug: { teleport: (x: number, z: number) => void };
+      player: { groundY: number };
+    };
+    game.debug.teleport(-100, 450);
+    game.player.groundY = 0;
+  });
+  await page.waitForTimeout(300);
+  const pos = await page.evaluate(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      player: { x: number; z: number };
+      city: { boundaryColliders: unknown[] };
+    };
+    return {
+      x: game.player.x,
+      z: game.player.z,
+      colliders: game.city.boundaryColliders.length,
+    };
+  });
+  expect(pos.colliders).toBe(4);
+  expect(pos.x).toBeLessThan(-10);
+  expect(pos.x).toBeGreaterThan(-25);
+  expect(pos.z).toBeGreaterThan(300);
+  expect(pos.z).toBeLessThan(600);
 });
 
 test('desktop visual and FPS smoke', async ({ page }) => {

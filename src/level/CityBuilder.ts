@@ -2,7 +2,16 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Reflector } from 'three/addons/objects/Reflector.js';
 import { COLORS, RACE_CONFIG, TREE_COLLIDER_RADIUS, WORLD } from '../core/Constants';
-import type { Aabb, CircleCollider, LaneInfo, QualityPreset, RaceLayout, RaceLayoutId } from '../core/types';
+import type {
+  Aabb,
+  CircleCollider,
+  LaneInfo,
+  QualityPreset,
+  RaceLayout,
+  RaceLayoutDefinition,
+  RaceLayoutId,
+} from '../core/types';
+import { RACE_LAYOUT_DEFINITIONS } from '../race/layouts';
 
 export interface CityIntersection {
   index: number;
@@ -25,6 +34,7 @@ export interface City {
   edges: CityEdge[];
   lanes: LaneInfo[];
   buildingColliders: Aabb[];
+  boundaryColliders: Aabb[];
   treeColliders: CircleCollider[];
   bounds: Aabb;
   raceBarriers: Aabb[];
@@ -702,6 +712,35 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
     group.add(boundaryWall);
   }
 
+  const wallHalf = 0.7;
+  const wallInset = WORLD.BOUNDARY_OFFSET + 2;
+  const boundaryColliders: Aabb[] = [
+    {
+      minX: -1,
+      maxX: MAP_SIZE + 1,
+      minZ: -wallInset - wallHalf,
+      maxZ: -wallInset + wallHalf,
+    },
+    {
+      minX: -1,
+      maxX: MAP_SIZE + 1,
+      minZ: MAP_SIZE + wallInset - wallHalf,
+      maxZ: MAP_SIZE + wallInset + wallHalf,
+    },
+    {
+      minX: -wallInset - wallHalf,
+      maxX: -wallInset + wallHalf,
+      minZ: -1,
+      maxZ: MAP_SIZE + 1,
+    },
+    {
+      minX: MAP_SIZE + wallInset - wallHalf,
+      maxX: MAP_SIZE + wallInset + wallHalf,
+      minZ: -1,
+      maxZ: MAP_SIZE + 1,
+    },
+  ];
+
   const CHUNK_SIZE = WORLD.BLOCK_LENGTH * 2;
   const CHUNKS = Math.ceil(WORLD.GRID_SIZE / 2);
   const CHUNK_COUNT = CHUNKS * CHUNKS;
@@ -1286,11 +1325,27 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
   const at = (x: number, z: number): THREE.Vector3 => new THREE.Vector3(x, 0, z);
   const blockLength = 4.2;
   const flagPalette = [0xd9342f, 0x2f6fd0, 0x2f9e4f, 0xe0a63a];
-  const buildRaceLayout = (
-    id: RaceLayoutId,
-    name: string,
-    path: [number, number][],
-  ): RaceLayout => {
+  const buildRaceLayout = (definition: RaceLayoutDefinition): RaceLayout => {
+    const id = definition.id;
+    const name = definition.name;
+    const path = definition.path;
+    const checkpointRadius =
+      definition.checkpointRadius ?? RACE_CONFIG.CHECKPOINT_RADIUS;
+    const corridorWidth =
+      definition.corridorWidth ?? RACE_CONFIG.CORRIDOR_WIDTH;
+    const barrierWidth =
+      definition.barrierWidth ?? RACE_CONFIG.BARRIER_WIDTH;
+    const barrierOffset =
+      definition.barrierOffset ?? RACE_CONFIG.BARRIER_OFFSET;
+    const barrierExtra =
+      definition.barrierExtra ?? RACE_CONFIG.BARRIER_EXTRA;
+    const flagOffset = definition.flagOffset ?? RACE_CONFIG.FLAG_OFFSET;
+    const startGridOffset =
+      definition.startGridOffset ?? RACE_CONFIG.START_GRID_OFFSET;
+    const startGridSpacing =
+      definition.startGridSpacing ?? RACE_CONFIG.START_GRID_SPACING;
+    const startGridRowOffset =
+      definition.startGridRowOffset ?? RACE_CONFIG.START_GRID_ROW_OFFSET;
     const rawPoints = path.map(([px, pz]) => at(px * B, pz * B));
     const points: THREE.Vector3[] = [];
     for (const point of rawPoints) {
@@ -1322,19 +1377,19 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
     const snz = sux;
     const midX = (points[0].x + points[1].x) / 2;
     const midZ = (points[0].z + points[1].z) / 2;
-    const startGridX = midX + snx * RACE_CONFIG.START_GRID_OFFSET;
-    const startGridZ = midZ + snz * RACE_CONFIG.START_GRID_OFFSET;
+    const startGridX = midX + snx * startGridOffset;
+    const startGridZ = midZ + snz * startGridOffset;
     const startSlots: { x: number; z: number }[] = [];
     for (let k = 0; k < RACE_CONFIG.MAX_TOTAL_RACERS; k += 1) {
       startSlots.push({
-        x: startGridX - sux * k * RACE_CONFIG.START_GRID_SPACING,
-        z: startGridZ - suz * k * RACE_CONFIG.START_GRID_SPACING,
+        x: startGridX - sux * k * startGridSpacing,
+        z: startGridZ - suz * k * startGridSpacing,
       });
     }
     for (let k = 0; k < startSlots.length; k += 1) {
       if (k % 2 === 1) {
-        startSlots[k].x += snx * RACE_CONFIG.START_GRID_ROW_OFFSET;
-        startSlots[k].z += snz * RACE_CONFIG.START_GRID_ROW_OFFSET;
+        startSlots[k].x += snx * startGridRowOffset;
+        startSlots[k].z += snz * startGridRowOffset;
       }
     }
     const startHeading = Math.atan2(sux, suz);
@@ -1351,13 +1406,13 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
       const nz = ux;
       const cross = dx * nz - dz * nx;
       for (const side of cross > 0 ? [1, -1] : [-1, 1]) {
-        const bx = a.x + nx * (side * RACE_CONFIG.BARRIER_OFFSET);
-        const bz = a.z + nz * (side * RACE_CONFIG.BARRIER_OFFSET);
+        const bx = a.x + nx * (side * barrierOffset);
+        const bz = a.z + nz * (side * barrierOffset);
         const cornerGap =
           WORLD.ROAD_WIDTH / 2 +
           WORLD.SIDEWALK_WIDTH +
-          RACE_CONFIG.BARRIER_WIDTH / 2 +
-          RACE_CONFIG.BARRIER_EXTRA +
+          barrierWidth / 2 +
+          barrierExtra +
           2;
         let start = Math.min(cornerGap, len / 2 - 1);
         let end = Math.max(len - cornerGap, len / 2 + 1);
@@ -1374,10 +1429,10 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
         const highX = bx + ux * end;
         const highZ = bz + uz * end;
         raceBarriers.push({
-          minX: Math.min(lowX, highX) - RACE_CONFIG.BARRIER_WIDTH / 2 - RACE_CONFIG.BARRIER_EXTRA,
-          maxX: Math.max(lowX, highX) + RACE_CONFIG.BARRIER_WIDTH / 2 + RACE_CONFIG.BARRIER_EXTRA,
-          minZ: Math.min(lowZ, highZ) - RACE_CONFIG.BARRIER_WIDTH / 2 - RACE_CONFIG.BARRIER_EXTRA,
-          maxZ: Math.max(lowZ, highZ) + RACE_CONFIG.BARRIER_WIDTH / 2 + RACE_CONFIG.BARRIER_EXTRA,
+          minX: Math.min(lowX, highX) - barrierWidth / 2 - barrierExtra,
+          maxX: Math.max(lowX, highX) + barrierWidth / 2 + barrierExtra,
+          minZ: Math.min(lowZ, highZ) - barrierWidth / 2 - barrierExtra,
+          maxZ: Math.max(lowZ, highZ) + barrierWidth / 2 + barrierExtra,
         });
         for (let t = start; t < end; t += blockLength) {
           const bxPos = bx + ux * (t + blockLength / 2);
@@ -1389,7 +1444,7 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
                 new THREE.Vector3(0, 1, 0),
                 Math.atan2(ux, uz),
               ),
-              new THREE.Vector3(Math.min(blockLength, end - t), RACE_CONFIG.BARRIER_HEIGHT, RACE_CONFIG.BARRIER_WIDTH),
+              new THREE.Vector3(Math.min(blockLength, end - t), RACE_CONFIG.BARRIER_HEIGHT, barrierWidth),
             ),
           );
           barrierColors.push(new THREE.Color(ci % 2 === 0 ? 0xd9342f : 0xe8e8e8));
@@ -1406,15 +1461,15 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
           new THREE.Matrix4().compose(
             new THREE.Vector3(x, RACE_CONFIG.BARRIER_HEIGHT / 2, z),
             new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), rotationY),
-            new THREE.Vector3(length, RACE_CONFIG.BARRIER_HEIGHT, RACE_CONFIG.BARRIER_WIDTH),
+            new THREE.Vector3(length, RACE_CONFIG.BARRIER_HEIGHT, barrierWidth),
           ),
         );
         barrierColors.push(new THREE.Color(ci % 2 === 0 ? 0xd9342f : 0xe8e8e8));
-        const half = RACE_CONFIG.BARRIER_WIDTH / 2 + RACE_CONFIG.BARRIER_EXTRA;
+        const half = barrierWidth / 2 + barrierExtra;
         if (rotationY === 0) {
           raceBarriers.push({
-            minX: x - length / 2 - RACE_CONFIG.BARRIER_EXTRA,
-            maxX: x + length / 2 + RACE_CONFIG.BARRIER_EXTRA,
+            minX: x - length / 2 - barrierExtra,
+            maxX: x + length / 2 + barrierExtra,
             minZ: z - half,
             maxZ: z + half,
           });
@@ -1422,14 +1477,14 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
           raceBarriers.push({
             minX: x - half,
             maxX: x + half,
-            minZ: z - length / 2 - RACE_CONFIG.BARRIER_EXTRA,
-            maxZ: z + length / 2 + RACE_CONFIG.BARRIER_EXTRA,
+            minZ: z - length / 2 - barrierExtra,
+            maxZ: z + length / 2 + barrierExtra,
           });
         }
       };
       const mouthLen = WORLD.ROAD_WIDTH + WORLD.SIDEWALK_WIDTH * 2 + 2;
       const mouthOffset =
-        WORLD.ROAD_WIDTH / 2 + WORLD.SIDEWALK_WIDTH + RACE_CONFIG.BARRIER_EXTRA + 1.5;
+        WORLD.ROAD_WIDTH / 2 + WORLD.SIDEWALK_WIDTH + barrierExtra + 1.5;
       const p = a;
       if (Math.abs(p.z - N * B) < 0.1 && p.x > B - 0.1 && p.x < N * B - 0.1) {
         mouthBarrier(p.x, N * B - mouthOffset, 0, mouthLen);
@@ -1474,8 +1529,8 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
       const nz = ux;
       const heading = Math.atan2(ux, uz);
       for (const side of [-1, 1]) {
-        const fx = p.x + nx * (side * RACE_CONFIG.FLAG_OFFSET);
-        const fz = p.z + nz * (side * RACE_CONFIG.FLAG_OFFSET);
+        const fx = p.x + nx * (side * flagOffset);
+        const fz = p.z + nz * (side * flagOffset);
         poleMatrices.push(
           new THREE.Matrix4().compose(
             new THREE.Vector3(fx, 1.35, fz),
@@ -1534,37 +1589,20 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
       layoutGroup.add(flagMesh);
     }
     raceProps.add(layoutGroup);
-    return { id, name, checkpoints, startSlots, startHeading, raceBarriers };
+    return {
+      id,
+      name,
+      checkpoints,
+      startSlots,
+      startHeading,
+      raceBarriers,
+      checkpointRadius,
+      corridorWidth,
+    };
   };
 
-  const startI = Math.floor(N / 2);
-  const perimeterPath: [number, number][] = [];
-  for (let i = startI; i <= N; i += 1) perimeterPath.push([i, N]);
-  for (let j = N - 1; j >= 0; j -= 1) perimeterPath.push([N, j]);
-  for (let i = N - 1; i >= 0; i -= 1) perimeterPath.push([i, 0]);
-  for (let j = 1; j < N; j += 1) perimeterPath.push([0, j]);
-  for (let i = 0; i < startI; i += 1) perimeterPath.push([i, N]);
-  const cityTourPath: [number, number][] = [
-    [4, 8], [3, 8], [2, 8], [1, 8], [0, 8],
-    [0, 7], [0, 6], [0, 5], [0, 4], [0, 3], [0, 2], [0, 1], [0, 0],
-    [1, 0], [2, 0], [3, 0], [4, 0], [5, 0], [6, 0],
-    [6, 1], [6, 2], [5, 2], [5, 3], [5, 4], [4, 4],
-    [4, 5], [4, 6], [4, 7], [4, 8],
-  ];
-  const hillLoopPath: [number, number][] = [
-    [0, 5], [0, 6], [0, 7], [0, 8],
-    [1, 8], [2, 8], [3, 8], [4, 8], [5, 8], [6, 8], [7, 8], [8, 8],
-    [8, 7], [8, 6],
-    [7, 6], [7, 5], [7, 4], [6, 4],
-    [6, 3], [6, 2], [6, 1], [6, 0],
-    [5, 0], [4, 0], [3, 0], [2, 0], [1, 0], [0, 0],
-    [0, 1], [0, 2], [0, 3], [0, 4], [0, 5],
-  ];
-  const raceLayouts: RaceLayout[] = [
-    buildRaceLayout('perimeter', '城市环路', perimeterPath),
-    buildRaceLayout('cityTour', '城市巡回', cityTourPath),
-    buildRaceLayout('hillLoop', '山地纵贯', hillLoopPath),
-  ];
+  const raceLayouts: RaceLayout[] =
+    RACE_LAYOUT_DEFINITIONS.map(buildRaceLayout);
   let activeRaceLayoutId: RaceLayoutId = 'perimeter';
   raceProps.visible = false;
   group.add(raceProps);
@@ -1607,6 +1645,7 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
     edges,
     lanes,
     buildingColliders,
+    boundaryColliders,
     treeColliders,
     bounds: { minX: 0, maxX: MAP_SIZE, minZ: 0, maxZ: MAP_SIZE },
     get raceBarriers() {

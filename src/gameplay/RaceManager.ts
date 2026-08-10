@@ -12,6 +12,11 @@ export interface RacerState {
   finishTimeMs: number;
 }
 
+export interface RaceManagerOptions {
+  checkpointRadius: number;
+  corridorWidth: number;
+}
+
 function normalizeAngle(angle: number): number {
   while (angle > Math.PI) angle -= Math.PI * 2;
   while (angle < -Math.PI) angle += Math.PI * 2;
@@ -52,9 +57,15 @@ export class RaceManager {
   private lastCountdownValue = RACE_CONFIG.COUNTDOWN_SECONDS + 1;
   private positionEmitTimer = 0;
   private raceStartMs = 0;
+  private readonly checkpointRadius: number;
+  private readonly corridorWidth: number;
 
-  constructor(checkpoints: THREE.Vector3[]) {
+  constructor(checkpoints: THREE.Vector3[], options?: Partial<RaceManagerOptions>) {
     this.checkpoints = checkpoints;
+    this.checkpointRadius =
+      options?.checkpointRadius ?? RACE_CONFIG.CHECKPOINT_RADIUS;
+    this.corridorWidth =
+      options?.corridorWidth ?? RACE_CONFIG.CORRIDOR_WIDTH;
   }
 
   init(
@@ -215,8 +226,8 @@ export class RaceManager {
       b.z,
     );
     if (
-      distToCheckpoint < RACE_CONFIG.CHECKPOINT_RADIUS &&
-      corridor < RACE_CONFIG.CORRIDOR_WIDTH
+      distToCheckpoint < this.checkpointRadius &&
+      corridor < this.corridorWidth
     ) {
       racer.checkpoint = (racer.checkpoint + 1) % W;
       if (racer.checkpoint === 0) {

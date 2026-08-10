@@ -197,8 +197,10 @@ export class Game {
     this.showcase = this.createPlayer(gameState.player.vehicleId, gameState.player.color);
     this.traffic = new TrafficSystem(this.finiteCity, this.scene);
     this.pedestrians = new PedestrianSystem(this.finiteCity, this.scene);
+    const defaultLayout = this.finiteCity.raceLayouts[0];
     this.race = new RaceManager(
-      this.finiteCity.raceLayouts[0].checkpoints.map((p) => new THREE.Vector3(p.x, 0, p.z)),
+      defaultLayout.checkpoints.map((p) => new THREE.Vector3(p.x, 0, p.z)),
+      defaultLayout,
     );
     this.ui = new UIManager(this, this.input, container);
 
@@ -551,6 +553,7 @@ export class Game {
     }
     this.race = new RaceManager(
       layout.checkpoints.map((p) => new THREE.Vector3(p.x, 0, p.z)),
+      layout,
     );
     this.race.init(
       this.player,
@@ -1138,7 +1141,10 @@ export class Game {
     ) {
       return;
     }
-    this.buildingGrid = buildAabbGrid(this.city.buildingColliders, 40);
+    this.buildingGrid = buildAabbGrid(
+      [...this.city.buildingColliders, ...this.city.boundaryColliders],
+      40,
+    );
     this.treeGrid = buildCircleGrid(this.city.treeColliders, 32);
     this.collisionGridCity = this.city;
     this.colliderGridRevision = this.city.revision;
@@ -1212,14 +1218,21 @@ export class Game {
   }
 
   private clampToBounds(vehicle: PlayerVehicle): void {
-    vehicle.x = Math.max(
-      this.city.bounds.minX + 6,
-      Math.min(this.city.bounds.maxX - 6, vehicle.x),
-    );
-    vehicle.z = Math.max(
-      this.city.bounds.minZ + 6,
-      Math.min(this.city.bounds.maxZ - 6, vehicle.z),
-    );
+    const colliders = this.city.boundaryColliders;
+    if (colliders.length === 0) return;
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    for (const box of colliders) {
+      minX = Math.min(minX, box.minX);
+      maxX = Math.max(maxX, box.maxX);
+      minZ = Math.min(minZ, box.minZ);
+      maxZ = Math.max(maxZ, box.maxZ);
+    }
+    const margin = vehicle.spec.width / 2 + 0.6;
+    vehicle.x = Math.max(minX + margin, Math.min(maxX - margin, vehicle.x));
+    vehicle.z = Math.max(minZ + margin, Math.min(maxZ - margin, vehicle.z));
   }
 
   private createPlayer(

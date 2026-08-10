@@ -131,4 +131,21 @@ export interface RaceLayout {
   startSlots: { x: number; z: number }[];
   startHeading: number;
   raceBarriers: Aabb[];
+  checkpointRadius: number;
+  corridorWidth: number;
+}
+
+export interface RaceLayoutDefinition {
+  id: RaceLayoutId;
+  name: string;
+  path: [number, number][];
+  checkpointRadius?: number;
+  corridorWidth?: number;
+  barrierWidth?: number;
+  barrierOffset?: number;
+  barrierExtra?: number;
+  flagOffset?: number;
+  startGridOffset?: number;
+  startGridSpacing?: number;
+  startGridRowOffset?: number;
 }
