@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { DENSITY_CONFIG, PEDESTRIAN_CONFIG } from '../core/Constants';
 import { gameState } from '../core/GameState';
 import type { City } from '../level/CityBuilder';
@@ -136,7 +137,7 @@ async function attachPedestrianModel(group: THREE.Group): Promise<void> {
   const url = PEDESTRIAN_MODEL_URLS[Math.floor(Math.random() * PEDESTRIAN_MODEL_URLS.length)];
   try {
     const source = await loadPedestrianScene(url);
-    const root = source.clone(true);
+    const root = cloneSkeleton(source);
     const box = new THREE.Box3().setFromObject(root);
     const size = box.getSize(new THREE.Vector3());
     if (size.y < 1e-4) return;
