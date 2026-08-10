@@ -13,7 +13,7 @@ import type { CameraMode } from './types';
 import { InputSystem } from '../systems/InputSystem';
 import { AudioSystem } from '../systems/AudioSystem';
 import { buildCity, type City } from '../level/CityBuilder';
-import { createSkybox, createSkyTexture } from '../level/Skybox';
+import { createSkybox, createSkyTexture, getSunDirection } from '../level/Skybox';
 import { PlayerVehicle } from '../gameplay/PlayerVehicle';
 import { setVehicleEnvMap } from '../gameplay/VehicleFactory';
 import { TrafficSystem } from '../gameplay/TrafficSystem';
@@ -114,7 +114,8 @@ export class Game {
     const hemi = new THREE.HemisphereLight(0xcfe6ff, 0x6d8f6a, 0.9);
     this.scene.add(hemi);
     this.sun = new THREE.DirectionalLight(0xfff2d8, 1.7);
-    this.sun.position.set(120, 180, 90);
+    const sunDir = getSunDirection();
+    this.sun.position.set(sunDir.x * 300, sunDir.y * 300, sunDir.z * 300);
     this.sun.castShadow = !lowPowerRender;
     this.sun.shadow.mapSize.set(1024, 1024);
     this.sun.shadow.camera.near = 1;
@@ -329,8 +330,7 @@ export class Game {
     this.traffic.setActive(true);
     this.pedestrians.setActive(true);
     this.clearAiVehicles();
-    const center = (WORLD.GRID_SIZE / 2) * WORLD.BLOCK_LENGTH;
-    this.player.reset(center - 12, center - 16, Math.PI);
+    this.player.reset(WORLD.SPAWN_X, WORLD.SPAWN_Z, Math.PI);
     this.audio.init();
     this.audio.resume();
     this.audio.startBgm();
@@ -417,8 +417,7 @@ export class Game {
 
   resetVehicle(): void {
     if (gameState.mode === 'freeRoam') {
-      const center = (WORLD.GRID_SIZE / 2) * WORLD.BLOCK_LENGTH;
-      this.player.reset(center - 12, center - 16, Math.PI);
+      this.player.reset(WORLD.SPAWN_X, WORLD.SPAWN_Z, Math.PI);
       return;
     }
     if (gameState.mode === 'race' && this.race.phase !== 'finished') {
@@ -450,7 +449,6 @@ export class Game {
 
   private tick(dt: number): void {
     this.timeSec += dt;
-    this.sky.rotation.y = this.timeSec * 0.0025;
     this.input.update();
     this.handleDiscreteInput();
     this.city.updateSignals(this.timeSec);
@@ -660,7 +658,8 @@ export class Game {
   }
 
   private updateSun(): void {
-    this.sun.position.set(this.player.x + 120, 180, this.player.z + 90);
+    const d = getSunDirection();
+    this.sun.position.set(this.player.x + d.x * 300, d.y * 300, this.player.z + d.z * 300);
     this.sun.target.position.set(this.player.x, 0, this.player.z);
     this.sun.target.updateMatrixWorld();
   }
@@ -881,8 +880,7 @@ export class Game {
   }
 
   private placeShowcase(): void {
-    const center = (WORLD.GRID_SIZE / 2) * WORLD.BLOCK_LENGTH;
-    this.showcase.reset(center, center, 0);
+    this.showcase.reset(WORLD.SPAWN_X, WORLD.SPAWN_Z, 0);
     this.showcase.visuals.group.visible = true;
   }
 

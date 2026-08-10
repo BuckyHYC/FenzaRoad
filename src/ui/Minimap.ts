@@ -21,9 +21,9 @@ export class Minimap {
     if (!context) throw new Error('Minimap canvas context unavailable');
     this.ctx = context;
     const N = WORLD.GRID_SIZE;
-    this.minX = -40;
-    this.minZ = -40;
-    const range = N * WORLD.BLOCK_LENGTH + 80;
+    this.minX = 0;
+    this.minZ = 0;
+    const range = N * WORLD.BLOCK_LENGTH;
     this.scale = (this.size - this.margin * 2) / range;
   }
 
@@ -33,6 +33,31 @@ export class Minimap {
     ctx.clearRect(0, 0, size, size);
     ctx.fillStyle = 'rgba(16,20,26,0.86)';
     ctx.fillRect(0, 0, size, size);
+
+    const mapMax = WORLD.GRID_SIZE * WORLD.BLOCK_LENGTH;
+    const cityMaxX = WORLD.CITY_MAX_X;
+    const villageMaxX = WORLD.VILLAGE_MAX_X;
+    ctx.fillStyle = 'rgba(90,150,200,0.18)';
+    ctx.fillRect(
+      this.margin,
+      this.margin,
+      this.toCanvasX(cityMaxX) - this.margin,
+      size - this.margin * 2,
+    );
+    ctx.fillStyle = 'rgba(170,160,80,0.18)';
+    ctx.fillRect(
+      this.toCanvasX(cityMaxX),
+      this.margin,
+      this.toCanvasX(villageMaxX) - this.toCanvasX(cityMaxX),
+      size - this.margin * 2,
+    );
+    ctx.fillStyle = 'rgba(100,130,80,0.2)';
+    ctx.fillRect(
+      this.toCanvasX(villageMaxX),
+      this.margin,
+      this.toCanvasX(mapMax) - this.toCanvasX(villageMaxX),
+      size - this.margin * 2,
+    );
 
     ctx.strokeStyle = 'rgba(160,170,185,0.28)';
     ctx.lineWidth = 1;

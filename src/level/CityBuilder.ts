@@ -77,6 +77,9 @@ export function buildCity(scene: THREE.Scene): City {
   const N = WORLD.GRID_SIZE;
   const B = WORLD.BLOCK_LENGTH;
   const rand = mulberry32(WORLD.CITY_SEED);
+  const MAP_SIZE = N * B;
+  const CITY_MAX_X = WORLD.CITY_MAX_X;
+  const VILLAGE_MAX_X = WORLD.VILLAGE_MAX_X;
 
   const intersections: CityIntersection[] = [];
   for (let j = 0; j <= N; j += 1) {
@@ -143,28 +146,32 @@ export function buildCity(scene: THREE.Scene): City {
     const midZ = (a.z + b.z) / 2;
     if (edge.axis === 'x') {
       roadParts.push(transformedBox(B, 0.14, WORLD.ROAD_WIDTH, midX, 0.06, midZ));
-      sidewalkParts.push(
-        transformedBox(
-          B + WORLD.SIDEWALK_WIDTH * 2,
-          0.12,
-          WORLD.ROAD_WIDTH + WORLD.SIDEWALK_WIDTH * 2,
-          midX,
-          0.03,
-          midZ,
-        ),
-      );
+      if (midX <= CITY_MAX_X) {
+        sidewalkParts.push(
+          transformedBox(
+            B + WORLD.SIDEWALK_WIDTH * 2,
+            0.12,
+            WORLD.ROAD_WIDTH + WORLD.SIDEWALK_WIDTH * 2,
+            midX,
+            0.03,
+            midZ,
+          ),
+        );
+      }
     } else {
       roadParts.push(transformedBox(WORLD.ROAD_WIDTH, 0.14, B, midX, 0.06, midZ));
-      sidewalkParts.push(
-        transformedBox(
-          WORLD.ROAD_WIDTH + WORLD.SIDEWALK_WIDTH * 2,
-          0.12,
-          B + WORLD.SIDEWALK_WIDTH * 2,
-          midX,
-          0.03,
-          midZ,
-        ),
-      );
+      if (midX <= CITY_MAX_X) {
+        sidewalkParts.push(
+          transformedBox(
+            WORLD.ROAD_WIDTH + WORLD.SIDEWALK_WIDTH * 2,
+            0.12,
+            B + WORLD.SIDEWALK_WIDTH * 2,
+            midX,
+            0.03,
+            midZ,
+          ),
+        );
+      }
     }
     const dashCount = Math.floor(B / 14);
     for (let d = 1; d < dashCount; d += 1) {
@@ -210,14 +217,30 @@ export function buildCity(scene: THREE.Scene): City {
     group.add(marking);
   }
 
-  const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(2600, 2600),
+  const groundCity = new THREE.Mesh(
+    new THREE.PlaneGeometry(CITY_MAX_X, MAP_SIZE),
     new THREE.MeshStandardMaterial({ color: COLORS.GROUND, roughness: 1 }),
   );
-  ground.rotation.x = -Math.PI / 2;
-  ground.position.y = -0.02;
-  ground.receiveShadow = true;
-  group.add(ground);
+  groundCity.rotation.x = -Math.PI / 2;
+  groundCity.position.set(CITY_MAX_X / 2, -0.02, MAP_SIZE / 2);
+  groundCity.receiveShadow = true;
+  group.add(groundCity);
+  const groundVillage = new THREE.Mesh(
+    new THREE.PlaneGeometry(VILLAGE_MAX_X - CITY_MAX_X, MAP_SIZE),
+    new THREE.MeshStandardMaterial({ color: 0x8b9558, roughness: 1 }),
+  );
+  groundVillage.rotation.x = -Math.PI / 2;
+  groundVillage.position.set((CITY_MAX_X + VILLAGE_MAX_X) / 2, -0.02, MAP_SIZE / 2);
+  groundVillage.receiveShadow = true;
+  group.add(groundVillage);
+  const groundHills = new THREE.Mesh(
+    new THREE.PlaneGeometry(MAP_SIZE - VILLAGE_MAX_X, MAP_SIZE),
+    new THREE.MeshStandardMaterial({ color: 0x77864f, roughness: 1 }),
+  );
+  groundHills.rotation.x = -Math.PI / 2;
+  groundHills.position.set((VILLAGE_MAX_X + MAP_SIZE) / 2, -0.02, MAP_SIZE / 2);
+  groundHills.receiveShadow = true;
+  group.add(groundHills);
 
   const dirtMaterial = new THREE.MeshStandardMaterial({
     color: 0x8a6b45,
@@ -263,11 +286,12 @@ export function buildCity(scene: THREE.Scene): City {
   });
 
   const riverWidth = 22;
-  const riverCenterX = -25;
+  const riverLength = MAP_SIZE + 60;
+  const riverCenterX = MAP_SIZE / 2;
   const riverBedWidth = riverWidth - 6;
   const waterBaseY = -0.14;
   const river = new THREE.Mesh(
-    new THREE.PlaneGeometry(1020, riverBedWidth),
+    new THREE.PlaneGeometry(riverLength, riverBedWidth),
     waterMaterial,
   );
   river.rotation.x = -Math.PI / 2;
@@ -277,7 +301,7 @@ export function buildCity(scene: THREE.Scene): City {
   group.add(river);
 
   const riverbed = new THREE.Mesh(
-    new THREE.BoxGeometry(1020, 0.5, riverBedWidth),
+    new THREE.BoxGeometry(riverLength, 0.5, riverBedWidth),
     new THREE.MeshStandardMaterial({
       color: 0x6d5f47,
       roughness: 1,
@@ -289,7 +313,7 @@ export function buildCity(scene: THREE.Scene): City {
   group.add(riverbed);
   for (const side of [-1, 1]) {
     const slope = new THREE.Mesh(
-      new THREE.BoxGeometry(1020, 0.09, 3.4),
+      new THREE.BoxGeometry(riverLength, 0.09, 3.4),
       bankMaterial,
     );
     slope.position.set(
@@ -302,105 +326,139 @@ export function buildCity(scene: THREE.Scene): City {
     slope.receiveShadow = true;
     group.add(slope);
     const bank = new THREE.Mesh(
-      new THREE.BoxGeometry(1020, 0.08, 3.2),
+      new THREE.BoxGeometry(riverLength, 0.08, 3.2),
       bankMaterial,
     );
     bank.position.set(riverCenterX, 0.045, 460 + side * (riverWidth / 2 + 2));
     group.add(bank);
   }
 
-  const bridge = new THREE.Mesh(
-    new THREE.BoxGeometry(WORLD.ROAD_WIDTH, 0.22, 72),
-    asphaltMaterial,
-  );
-  bridge.position.set(-35, 0.16, 450);
-  bridge.name = 'bridge';
-  bridge.receiveShadow = true;
-  group.add(bridge);
-  for (const side of [-1, 1]) {
-    const rail = new THREE.Mesh(
-      new THREE.BoxGeometry(0.18, 1.1, 72),
-      highwayMaterial,
+  for (const bridgeX of [0, B, B * 2, B * 3, B * 4, B * 5, MAP_SIZE]) {
+    const bridge = new THREE.Mesh(
+      new THREE.BoxGeometry(WORLD.ROAD_WIDTH, 0.22, 72),
+      asphaltMaterial,
     );
-    rail.position.set(-35 + side * (WORLD.ROAD_WIDTH / 2 + 1.1), 0.75, 450);
-    group.add(rail);
+    bridge.position.set(bridgeX, 0.16, 450);
+    bridge.name = 'bridge';
+    bridge.receiveShadow = true;
+    group.add(bridge);
+    for (const side of [-1, 1]) {
+      const rail = new THREE.Mesh(
+        new THREE.BoxGeometry(0.18, 1.1, 72),
+        highwayMaterial,
+      );
+      rail.position.set(bridgeX + side * (WORLD.ROAD_WIDTH / 2 + 1.1), 0.75, 450);
+      group.add(rail);
+    }
   }
 
   const villageGroup = new THREE.Group();
   villageGroup.name = 'village';
+  const fieldMaterial = new THREE.MeshStandardMaterial({
+    color: 0x7c8a45,
+    roughness: 1,
+  });
   const villageRoad = new THREE.Mesh(
-    new THREE.BoxGeometry(46, 0.08, WORLD.ROAD_WIDTH),
+    new THREE.BoxGeometry(8, 0.08, MAP_SIZE - 60),
     dirtMaterial,
   );
-  villageRoad.position.set(-92.5, 0.085, 450);
+  villageRoad.position.set(560, 0.085, MAP_SIZE / 2);
   villageGroup.add(villageRoad);
-  for (const laneZ of [408, 492]) {
+  for (const laneZ of [225, 375, 525, 675]) {
     const lane = new THREE.Mesh(
-      new THREE.BoxGeometry(46, 0.07, 7),
+      new THREE.BoxGeometry(150, 0.07, 6),
       dirtMaterial,
     );
-    lane.position.set(-92.5, 0.075, laneZ);
+    lane.position.set(555, 0.075, laneZ);
     villageGroup.add(lane);
   }
-  const houseSpots: { x: number; z: number; rotation: number }[] = [
-    { x: -96, z: 362, rotation: 0.2 },
-    { x: -98, z: 404, rotation: -0.15 },
-    { x: -104, z: 432, rotation: 0.3 },
-    { x: -105, z: 470, rotation: -0.1 },
-    { x: -96, z: 512, rotation: 0.15 },
-    { x: -103, z: 548, rotation: -0.2 },
+  const houseZones: [number, number][] = [
+    [45, 205],
+    [250, 350],
+    [390, 435],
+    [495, 540],
+    [565, 660],
+    [700, 855],
   ];
-  for (const spot of houseSpots) {
-    const house = new THREE.Group();
-    const body = new THREE.Mesh(
-      new THREE.BoxGeometry(10, 4.2, 8),
-      villageWallMaterial,
-    );
-    body.position.y = 2.1;
-    const roof = new THREE.Mesh(
-      new THREE.ConeGeometry(7.2, 3.2, 4),
-      villageRoofMaterial,
-    );
-    roof.position.y = 4.6;
-    roof.rotation.y = Math.PI / 4;
-    const chimney = new THREE.Mesh(
-      new THREE.BoxGeometry(0.8, 1.6, 0.8),
-      villageWoodMaterial,
-    );
-    chimney.position.set(2.4, 5.4, -1.8);
-    house.add(body, roof, chimney);
-    house.position.set(spot.x, 0, spot.z);
-    house.rotation.y = spot.rotation;
-    house.traverse((child) => {
-      if (child instanceof THREE.Mesh) {
-        child.castShadow = true;
-        child.receiveShadow = true;
+  const housePositions: { x: number; z: number }[] = [];
+  for (const [zMin, zMax] of houseZones) {
+    for (let k = 0; k < 3; k += 1) {
+      let x = 478 + rand() * 165;
+      let z = zMin + rand() * (zMax - zMin);
+      let attempts = 0;
+      while (
+        attempts < 12 &&
+        (Math.abs(x - 560) < 11 ||
+          Math.abs(z - 460) < 13 ||
+          housePositions.some((p) => Math.hypot(p.x - x, p.z - z) < 15))
+      ) {
+        x = 478 + rand() * 165;
+        z = zMin + rand() * (zMax - zMin);
+        attempts += 1;
       }
-    });
-    villageGroup.add(house);
+      if (attempts >= 12) continue;
+      housePositions.push({ x, z });
+      const house = new THREE.Group();
+      house.name = 'village-house';
+      const bw = 9 + rand() * 4.5;
+      const bd = 7 + rand() * 3;
+      const bh = 3.6 + rand() * 1.5;
+      const body = new THREE.Mesh(
+        new THREE.BoxGeometry(bw, bh, bd),
+        villageWallMaterial,
+      );
+      body.position.y = bh / 2;
+      const roof = new THREE.Mesh(
+        new THREE.ConeGeometry(Math.max(bw, bd) * 0.75, 2.8 + rand(), 4),
+        villageRoofMaterial,
+      );
+      roof.position.y = bh + 1.2;
+      roof.rotation.y = Math.PI / 4;
+      const chimney = new THREE.Mesh(
+        new THREE.BoxGeometry(0.7, 1.5, 0.7),
+        villageWoodMaterial,
+      );
+      chimney.position.set(bw * 0.25, bh + 1.9, -bd * 0.22);
+      house.add(body, roof, chimney);
+      house.position.set(x, 0, z);
+      house.rotation.y = rand() * Math.PI * 2;
+      house.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          child.castShadow = true;
+          child.receiveShadow = true;
+        }
+      });
+      villageGroup.add(house);
+    }
   }
-  const villageTrees: { x: number; z: number; s: number }[] = [
-    { x: -86, z: 350, s: 1 },
-    { x: -110, z: 420, s: 1.2 },
-    { x: -88, z: 490, s: 0.9 },
-    { x: -112, z: 560, s: 1.1 },
-  ];
-  for (const spot of villageTrees) {
+  for (let f = 0; f < 8; f += 1) {
+    const field = new THREE.Mesh(
+      new THREE.BoxGeometry(14 + rand() * 12, 0.05, 10 + rand() * 8),
+      fieldMaterial,
+    );
+    field.position.set(475 + rand() * 185, 0.035, 55 + rand() * 790);
+    if (Math.abs(field.position.z - 460) < 14 || Math.abs(field.position.x - 560) < 10) {
+      f -= 1;
+      continue;
+    }
+    field.name = 'village-field';
+    field.receiveShadow = true;
+    villageGroup.add(field);
+  }
+  for (let t = 0; t < 14; t += 1) {
     const trunk = new THREE.Mesh(
       new THREE.CylinderGeometry(0.18, 0.3, 2.4, 7),
       villageWoodMaterial,
     );
-    trunk.position.y = 1.2 * spot.s;
-    trunk.scale.y = spot.s;
+    trunk.position.y = 1.2;
     const foliage = new THREE.Mesh(
       new THREE.ConeGeometry(1.5, 3, 8),
       hillMaterial,
     );
-    foliage.position.y = 3.4 * spot.s;
-    foliage.scale.y = spot.s;
+    foliage.position.y = 3.4;
     const tree = new THREE.Group();
     tree.add(trunk, foliage);
-    tree.position.set(spot.x, 0, spot.z);
+    tree.position.set(475 + rand() * 180, 0, 45 + rand() * 810);
     villageGroup.add(tree);
   }
   group.add(villageGroup);
@@ -410,6 +468,10 @@ export function buildCity(scene: THREE.Scene): City {
       if ((i + j) % 2 !== 0) continue;
       const x0 = i * B;
       const z0 = j * B;
+      if (x0 + B / 2 >= CITY_MAX_X) continue;
+      const crossesRiver = (zMin: number, zMax: number): boolean =>
+        zMin < 482 && zMax > 438;
+      if (crossesRiver(z0 + 30, z0 + B - 30)) continue;
       const alleyA = new THREE.Mesh(
         new THREE.BoxGeometry(4, 0.07, B - 60),
         dirtMaterial,
@@ -418,6 +480,7 @@ export function buildCity(scene: THREE.Scene): City {
       alleyA.name = 'alley';
       alleyA.receiveShadow = true;
       group.add(alleyA);
+      if (crossesRiver(z0 + 12, z0 + B - 48)) continue;
       const alleyB = new THREE.Mesh(
         new THREE.BoxGeometry(B - 60, 0.07, 4),
         dirtMaterial,
@@ -430,12 +493,23 @@ export function buildCity(scene: THREE.Scene): City {
   }
 
   const terrainColliders: CircleCollider[] = [];
-  const hills = [
-    { x: -112, z: 120, radius: 26, height: 13 },
-    { x: -112, z: 770, radius: 22, height: 11 },
-    { x: 938, z: 120, radius: 30, height: 15 },
-    { x: 938, z: 770, radius: 24, height: 12 },
-  ];
+  const hills: { x: number; z: number; radius: number; height: number }[] = [];
+  const hillSpots: { x: number; z: number; minR: number; maxR: number }[] = [];
+  for (const z of [65, 215, 365, 515, 665, 815]) {
+    for (const spot of [
+      { x: 705, minR: 15, maxR: 20 },
+      { x: 820, minR: 20, maxR: 30 },
+      { x: 868, minR: 13, maxR: 18 },
+    ]) {
+      if ((z === 65 && spot.x === 868) || (z === 815 && spot.x === 705)) continue;
+      hillSpots.push({ x: spot.x, z, minR: spot.minR, maxR: spot.maxR });
+    }
+  }
+  for (const spot of hillSpots) {
+    const radius = spot.minR + rand() * (spot.maxR - spot.minR);
+    const height = 8 + rand() * 9;
+    hills.push({ x: spot.x, z: spot.z, radius, height });
+  }
   for (const hill of hills) {
     const mound = new THREE.Mesh(
       new THREE.SphereGeometry(1, 16, 12),
@@ -460,13 +534,23 @@ export function buildCity(scene: THREE.Scene): City {
     terrainColliders.push({
       x: hill.x,
       z: hill.z,
-      radius: hill.radius * 0.6,
+      radius: hill.radius * 0.55,
     });
+  }
+  for (const trailX of [740, 885]) {
+    const trail = new THREE.Mesh(
+      new THREE.BoxGeometry(5, 0.05, MAP_SIZE - 60),
+      dirtMaterial,
+    );
+    trail.position.set(trailX, 0.045, MAP_SIZE / 2);
+    trail.name = 'hill-trail';
+    trail.receiveShadow = true;
+    group.add(trail);
   }
 
   const shoulderParts: THREE.BufferGeometry[] = [];
   const highwayDashParts: THREE.BufferGeometry[] = [];
-  const span = N * B + 60;
+  const span = MAP_SIZE + 12;
   for (const line of [0, N * B]) {
     const offset = WORLD.ROAD_WIDTH / 2 + 1.6;
     shoulderParts.push(
@@ -492,6 +576,24 @@ export function buildCity(scene: THREE.Scene): City {
   const dashGeometry = mergeGeometries(highwayDashParts);
   if (dashGeometry) {
     group.add(new THREE.Mesh(dashGeometry, yellowMarkingMaterial));
+  }
+
+  const wallParts: THREE.BufferGeometry[] = [
+    transformedBox(MAP_SIZE + 4, 2.4, 1.4, MAP_SIZE / 2, 1.2, -2),
+    transformedBox(MAP_SIZE + 4, 2.4, 1.4, MAP_SIZE / 2, 1.2, MAP_SIZE + 2),
+    transformedBox(1.4, 2.4, MAP_SIZE + 4, -2, 1.2, MAP_SIZE / 2),
+    transformedBox(1.4, 2.4, MAP_SIZE + 4, MAP_SIZE + 2, 1.2, MAP_SIZE / 2),
+  ];
+  const wallGeometry = mergeGeometries(wallParts);
+  if (wallGeometry) {
+    const boundaryWall = new THREE.Mesh(
+      wallGeometry,
+      new THREE.MeshStandardMaterial({ color: 0x9aa0a8, roughness: 0.85 }),
+    );
+    boundaryWall.name = 'boundary-wall';
+    boundaryWall.receiveShadow = true;
+    boundaryWall.castShadow = true;
+    group.add(boundaryWall);
   }
 
   const CHUNK_SIZE = WORLD.BLOCK_LENGTH * 2;
@@ -537,6 +639,7 @@ export function buildCity(scene: THREE.Scene): City {
       const x1 = (i + 1) * B - inset;
       const z0 = j * B + inset;
       const z1 = (j + 1) * B - inset;
+      if (i * B + B / 2 >= CITY_MAX_X) continue;
       const areaW = x1 - x0;
       const areaD = z1 - z0;
       if (areaW < 24 || areaD < 24) continue;
@@ -641,6 +744,7 @@ export function buildCity(scene: THREE.Scene): City {
       const offset = WORLD.ROAD_WIDTH / 2 + WORLD.SIDEWALK_WIDTH * 0.65;
       const px = a.x + ux * t + rx * side * offset + (rand() - 0.5) * 2.4;
       const pz = a.z + uz * t + rz * side * offset + (rand() - 0.5) * 2.4;
+      if (px > VILLAGE_MAX_X) continue;
       treeTrunkData[chunkIndexAt(px, pz)].push({
         x: px,
         z: pz,
@@ -655,6 +759,7 @@ export function buildCity(scene: THREE.Scene): City {
     () => [],
   );
   for (const node of intersections) {
+    if (node.x >= CITY_MAX_X - 10) continue;
     streetLampPositions[chunkIndexAt(node.x + 9.5, node.z + 9.5)].push({
       x: node.x + 9.5,
       z: node.z + 9.5,
@@ -671,6 +776,7 @@ export function buildCity(scene: THREE.Scene): City {
     axis: 'x' | 'z';
   }[][] = Array.from({ length: CHUNK_COUNT }, () => []);
   for (const node of intersections) {
+    if (node.x >= CITY_MAX_X - 10) continue;
     signalInstances[chunkIndexAt(node.x - 6.5, node.z + 6.5)].push({
       x: node.x - 6.5,
       z: node.z + 6.5,
@@ -737,6 +843,7 @@ export function buildCity(scene: THREE.Scene): City {
         buildingMaterial,
         chunkBuildings.length,
       );
+      buildingMesh.name = 'buildings';
       buildingMesh.receiveShadow = true;
       for (let i = 0; i < chunkBuildings.length; i += 1) {
         buildingMesh.setMatrixAt(i, chunkBuildings[i]);
@@ -754,6 +861,7 @@ export function buildCity(scene: THREE.Scene): City {
         roofMaterial,
         chunkRoofs.length,
       );
+      roofMesh.name = 'building-roofs';
       roofMesh.receiveShadow = true;
       for (let i = 0; i < chunkRoofs.length; i += 1) {
         roofMesh.setMatrixAt(i, chunkRoofs[i]);
@@ -771,6 +879,7 @@ export function buildCity(scene: THREE.Scene): City {
         windowMaterial,
         chunkWindows.length,
       );
+      windowMesh.name = 'building-windows';
       windowMesh.receiveShadow = true;
       windowMesh.castShadow = false;
       for (let i = 0; i < chunkWindows.length; i += 1) {
@@ -1273,7 +1382,7 @@ export function buildCity(scene: THREE.Scene): City {
   const raceStartSlots: THREE.Vector3[] = [];
   for (let k = 0; k < RACE_CONFIG.TOTAL_RACERS; k += 1) {
     const x = startI * B - 30 - k * 11;
-    const z = N * B + (k % 2 === 0 ? -3.5 : 3.5);
+    const z = MAP_SIZE - 3.5 - (k % 2 === 0 ? 0 : 7);
     raceStartSlots.push(at(x, z));
   }
 
@@ -1300,7 +1409,7 @@ export function buildCity(scene: THREE.Scene): City {
     raceCheckpoints: checkpoints,
     raceStartSlots,
     raceStartHeading: Math.PI / 2,
-    bounds: { minX: -120, maxX: N * B + 40, minZ: -40, maxZ: N * B + 40 },
+    bounds: { minX: 0, maxX: MAP_SIZE, minZ: 0, maxZ: MAP_SIZE },
     raceProps,
     setRacePropsVisible,
     lightGreen: lightGreenFor,

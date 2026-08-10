@@ -466,3 +466,177 @@ test('desktop visual and FPS smoke', async ({ page }) => {
   });
   expect(fps).toBeGreaterThan(15);
 });
+
+test('mobile touch controls accept simultaneous pointers', async ({ page }) => {
+  await boot(page);
+  await page.locator('.menu-hero .menu-btn-lg').nth(3).click();
+  await page.locator('.settings-overlay [data-control-mode="mobile"]').click();
+  await page.locator('.settings-overlay .menu-btn-secondary').click();
+  await page.locator('.menu-hero .menu-btn-lg').first().click();
+  await expect(page.locator('.touch-controls')).toBeVisible();
+
+  const rects = await page.evaluate(() => {
+    const base = document.querySelector('.joystick-base') as HTMLElement | null;
+    const throttle = document.querySelector('.pedal-throttle') as HTMLElement | null;
+    if (!base || !throttle) throw new Error('touch controls missing');
+    const b = base.getBoundingClientRect();
+    const t = throttle.getBoundingClientRect();
+    return {
+      bx: b.left + b.width / 2,
+      by: b.top + b.height / 2,
+      tx: t.left + t.width / 2,
+      ty: t.top + t.height / 2,
+    };
+  });
+
+  await page.evaluate(({ bx, by, tx, ty }) => {
+    const base = document.querySelector('.joystick-base') as HTMLElement;
+    const throttle = document.querySelector('.pedal-throttle') as HTMLElement;
+    const baseOpts: PointerEventInit = {
+      bubbles: true,
+      cancelable: true,
+      pointerId: 1,
+      isPrimary: true,
+      pointerType: 'touch',
+      clientX: bx + 30,
+      clientY: by,
+    };
+    base.dispatchEvent(new PointerEvent('pointerdown', baseOpts));
+    base.dispatchEvent(new PointerEvent('pointermove', baseOpts));
+    throttle.dispatchEvent(
+      new PointerEvent('pointerdown', {
+        ...baseOpts,
+        pointerId: 2,
+        isPrimary: false,
+        clientX: tx,
+        clientY: ty,
+      }),
+    );
+  }, rects);
+
+  await page.waitForTimeout(300);
+  const state = await page.evaluate(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      input: { moveX: number; moveZ: number };
+    };
+    return { moveX: game.input.moveX, moveZ: game.input.moveZ };
+  });
+  expect(state.moveX).toBeLessThan(-0.2);
+  expect(state.moveZ).toBeGreaterThan(0.9);
+
+  await page.evaluate(({ bx, by, tx, ty }) => {
+    const base = document.querySelector('.joystick-base') as HTMLElement;
+    const throttle = document.querySelector('.pedal-throttle') as HTMLElement;
+    base.dispatchEvent(
+      new PointerEvent('pointerup', {
+        bubbles: true,
+        pointerId: 1,
+        pointerType: 'touch',
+        clientX: bx + 30,
+        clientY: by,
+      }),
+    );
+    throttle.dispatchEvent(
+      new PointerEvent('pointerup', {
+        bubbles: true,
+        pointerId: 2,
+        pointerType: 'touch',
+        clientX: tx,
+        clientY: ty,
+      }),
+    );
+  }, rects);
+  await page.waitForTimeout(120);
+  const after = await page.evaluate(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      input: { moveX: number; moveZ: number };
+    };
+    return { moveX: game.input.moveX, moveZ: game.input.moveZ };
+  });
+  expect(after.moveX).toBe(0);
+  expect(after.moveZ).toBe(0);
+});
+
+test('map splits into rectangular zones and sun lights from an offset', async ({ page }) => {
+  await boot(page);
+  const result = await page.evaluate(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      city: {
+        bounds: { minX: number; maxX: number; minZ: number; maxZ: number };
+        group: { traverse: (fn: (obj: unknown) => void) => void };
+      };
+      sun: { position: { x: number; y: number; z: number } };
+      sky: { material?: { map?: { image?: HTMLCanvasElement } } };
+    };
+    let maxBuildingX = -Infinity;
+    let hillCount = 0;
+    let villageHouses = 0;
+    let boundaryWalls = 0;
+    let hillsInside = true;
+    let skyCanvas: HTMLCanvasElement | null = null;
+    game.city.group.traverse((raw) => {
+      const obj = raw as {
+        name?: string;
+        isInstancedMesh?: boolean;
+        count?: number;
+        instanceMatrix?: { array: Float32Array };
+        position?: { x: number; z: number };
+        material?: { map?: { image?: HTMLCanvasElement } };
+      };
+      if (obj.name === 'buildings' && obj.isInstancedMesh && obj.instanceMatrix) {
+        const arr = obj.instanceMatrix.array;
+        for (let i = 0; i < (obj.count ?? 0); i += 1) {
+          const tx = arr[i * 16 + 12];
+          const sx = Math.abs(arr[i * 16]);
+          maxBuildingX = Math.max(maxBuildingX, tx + sx / 2);
+        }
+      }
+      if (obj.name === 'hill' && obj.position) {
+        hillCount += 1;
+        if (obj.position.x < 660 || obj.position.x > 905) hillsInside = false;
+      }
+      if (obj.name === 'village-house') villageHouses += 1;
+      if (obj.name === 'boundary-wall') boundaryWalls += 1;
+    });
+    skyCanvas = game.sky.material?.map?.image ?? null;
+    const sun = game.sun.position;
+    const elevation = Math.atan2(sun.y, Math.hypot(sun.x, sun.z));
+    const azimuth = Math.atan2(sun.z, sun.x);
+    let sunBright = false;
+    if (skyCanvas) {
+      const ctx = skyCanvas.getContext('2d');
+      const d = {
+        x: Math.cos((143 * Math.PI) / 180) * Math.cos((32 * Math.PI) / 180),
+        y: Math.sin((32 * Math.PI) / 180),
+        z: Math.sin((143 * Math.PI) / 180) * Math.cos((32 * Math.PI) / 180),
+      };
+      let u = Math.atan2(d.z, -d.x) / (Math.PI * 2);
+      u = (u + 1) % 1;
+      const v = Math.acos(d.y) / Math.PI;
+      const pixel = ctx?.getImageData(Math.floor(u * 1024), Math.floor(v * 512), 1, 1).data;
+      if (pixel) sunBright = (pixel[0] + pixel[1] + pixel[2]) / 3 > 180;
+    }
+    return {
+      bounds: game.city.bounds,
+      maxBuildingX,
+      hillCount,
+      villageHouses,
+      boundaryWalls,
+      hillsInside,
+      elevation,
+      azimuth,
+      sunBright,
+    };
+  });
+
+  expect(result.bounds).toEqual({ minX: 0, maxX: 900, minZ: 0, maxZ: 900 });
+  expect(result.maxBuildingX).toBeLessThanOrEqual(451);
+  expect(result.hillCount).toBeGreaterThan(6);
+  expect(result.hillsInside).toBe(true);
+  expect(result.villageHouses).toBeGreaterThan(10);
+  expect(result.boundaryWalls).toBe(1);
+  expect(result.elevation).toBeGreaterThan(0.4);
+  expect(result.elevation).toBeLessThan(1.1);
+  expect(result.azimuth).not.toBeCloseTo(0, 1);
+  expect(result.sunBright).toBe(true);
+});

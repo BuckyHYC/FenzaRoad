@@ -11,6 +11,10 @@ export const WORLD = {
   LIGHT_CYCLE: 16,
   LIGHT_GREEN: 8,
   LIGHT_YELLOW_START: 10,
+  CITY_MAX_X: 450,
+  VILLAGE_MAX_X: 675,
+  SPAWN_X: 300,
+  SPAWN_Z: 450,
 } as const;
 
 export const PHYSICS = {

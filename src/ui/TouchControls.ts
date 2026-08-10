@@ -12,6 +12,7 @@ export class TouchControls {
   private readonly root: HTMLDivElement;
   private readonly base: HTMLDivElement;
   private readonly knob: HTMLDivElement;
+  private readonly joystickPointers = new Map<number, { x: number; y: number }>();
   private activePointerId: number | null = null;
   private moveX = 0;
   private moveZ = 0;
@@ -53,6 +54,8 @@ export class TouchControls {
 
   hide(): void {
     this.root.style.display = 'none';
+    this.joystickPointers.clear();
+    this.activePointerId = null;
     this.moveX = 0;
     this.moveZ = 0;
     this.throttle = false;
@@ -68,30 +71,62 @@ export class TouchControls {
     className: string,
   ): HTMLButtonElement {
     const button = el('button', className, label) as HTMLButtonElement;
-    button.addEventListener('pointerdown', (event) => {
+    const pointers = new Set<number>();
+    const press = (event: PointerEvent): void => {
       event.preventDefault();
-      onDown();
+      if (pointers.size === 0) onDown();
+      pointers.add(event.pointerId);
+      try {
+        button.setPointerCapture(event.pointerId);
+      } catch {
+        // Synthetic pointers have no active capture; normal touch still works.
+      }
+    };
+    const release = (event: PointerEvent): void => {
+      if (!pointers.delete(event.pointerId)) return;
+      if (pointers.size === 0) onUp();
+    };
+    button.addEventListener('pointerdown', press);
+    button.addEventListener('pointerup', release);
+    button.addEventListener('pointercancel', release);
+    button.addEventListener('pointerleave', (event) => {
+      if (button.hasPointerCapture(event.pointerId)) return;
+      release(event);
     });
-    button.addEventListener('pointerup', onUp);
-    button.addEventListener('pointercancel', onUp);
-    button.addEventListener('pointerleave', onUp);
+    button.addEventListener('lostpointercapture', release);
     return button;
   }
 
   private readonly onPointerDown = (event: PointerEvent): void => {
+    event.preventDefault();
+    this.joystickPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (this.activePointerId !== null) return;
     this.activePointerId = event.pointerId;
-    this.base.setPointerCapture(event.pointerId);
+    try {
+      this.base.setPointerCapture(event.pointerId);
+    } catch {
+      // Synthetic pointers have no active capture; normal touch still works.
+    }
     this.updateFromEvent(event);
   };
 
   private readonly onPointerMove = (event: PointerEvent): void => {
     if (this.activePointerId !== event.pointerId) return;
+    this.joystickPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     this.updateFromEvent(event);
   };
 
   private readonly onPointerUp = (event: PointerEvent): void => {
+    if (!this.joystickPointers.delete(event.pointerId)) return;
     if (this.activePointerId !== event.pointerId) return;
     this.activePointerId = null;
+    const next = this.joystickPointers.keys().next();
+    if (!next.done) {
+      this.activePointerId = next.value;
+      const point = this.joystickPointers.get(next.value);
+      if (point) this.updateFromPoint(point.x, point.y);
+      return;
+    }
     this.moveX = 0;
     this.moveZ = 0;
     this.knob.style.transform = 'translate(0, 0)';
@@ -99,11 +134,15 @@ export class TouchControls {
   };
 
   private updateFromEvent(event: PointerEvent): void {
+    this.updateFromPoint(event.clientX, event.clientY);
+  }
+
+  private updateFromPoint(clientX: number, clientY: number): void {
     const rect = this.base.getBoundingClientRect();
     const cx = rect.left + rect.width / 2;
     const cy = rect.top + rect.height / 2;
-    let dx = event.clientX - cx;
-    let dy = event.clientY - cy;
+    let dx = clientX - cx;
+    let dy = clientY - cy;
     const dist = Math.hypot(dx, dy);
     if (dist > this.maxRadius) {
       dx = (dx / dist) * this.maxRadius;

@@ -1,5 +1,32 @@
 import * as THREE from 'three';
 
+export const SUN_CONFIG = {
+  azimuthDeg: 143,
+  elevationDeg: 32,
+  angularDiameterDeg: 0.53,
+  colorTemperatureK: 5778,
+  intensity: 1.55,
+} as const;
+
+export function getSunDirection(): { x: number; y: number; z: number } {
+  const azimuth = (SUN_CONFIG.azimuthDeg * Math.PI) / 180;
+  const elevation = (SUN_CONFIG.elevationDeg * Math.PI) / 180;
+  const horizontal = Math.cos(elevation);
+  return {
+    x: Math.cos(azimuth) * horizontal,
+    y: Math.sin(elevation),
+    z: Math.sin(azimuth) * horizontal,
+  };
+}
+
+export function getSunTexturePosition(): { x: number; y: number } {
+  const d = getSunDirection();
+  let u = Math.atan2(d.z, -d.x) / (Math.PI * 2);
+  u = (u + 1) % 1;
+  const v = Math.acos(Math.max(-1, Math.min(1, d.y))) / Math.PI;
+  return { x: Math.round(u * 1024), y: Math.round(v * 512) };
+}
+
 function drawCloud(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -31,24 +58,25 @@ export function createSkyTexture(): THREE.CanvasTexture {
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, 1024, 512);
 
-  const sunX = 780;
-  const sunY = 120;
-  const sunGlow = ctx.createRadialGradient(sunX, sunY, 6, sunX, sunY, 130);
-  sunGlow.addColorStop(0, 'rgba(255,246,210,0.95)');
-  sunGlow.addColorStop(0.25, 'rgba(255,238,180,0.55)');
-  sunGlow.addColorStop(1, 'rgba(255,238,180,0)');
+  const sunPos = getSunTexturePosition();
+  const sunX = sunPos.x;
+  const sunY = sunPos.y;
+  const sunGlow = ctx.createRadialGradient(sunX, sunY, 4, sunX, sunY, 110);
+  sunGlow.addColorStop(0, 'rgba(255,248,224,0.98)');
+  sunGlow.addColorStop(0.18, 'rgba(255,240,200,0.6)');
+  sunGlow.addColorStop(1, 'rgba(255,240,200,0)');
   ctx.fillStyle = sunGlow;
-  ctx.fillRect(sunX - 140, sunY - 140, 280, 280);
-  ctx.fillStyle = 'rgba(255,252,230,0.95)';
+  ctx.fillRect(sunX - 115, sunY - 115, 230, 230);
+  ctx.fillStyle = 'rgba(255,252,230,0.98)';
   ctx.beginPath();
-  ctx.arc(sunX, sunY, 26, 0, Math.PI * 2);
+  ctx.arc(sunX, sunY, 17, 0, Math.PI * 2);
   ctx.fill();
 
-  for (let i = 0; i < 34; i += 1) {
-    const x = ((i * 337 + 41) % 1024) + (Math.random() - 0.5) * 120;
-    const y = 42 + Math.random() * 240;
-    const size = 24 + Math.random() * 58;
-    const alpha = 0.45 + Math.random() * 0.45;
+  for (let i = 0; i < 22; i += 1) {
+    const x = ((i * 337 + 41) % 1024) + (Math.random() - 0.5) * 80;
+    const y = 36 + Math.random() * 210;
+    const size = 12 + Math.random() * 18;
+    const alpha = 0.32 + Math.random() * 0.38;
     drawCloud(ctx, x, y, size, alpha);
   }
 
