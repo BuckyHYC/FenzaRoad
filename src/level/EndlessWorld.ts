@@ -660,6 +660,7 @@ export function buildEndlessWorld(scene: THREE.Scene): City {
       startSlots: [],
       startHeading: Math.PI / 2,
       raceBarriers: [],
+      raceBarrierCircles: [],
       checkpointRadius: 22,
       corridorWidth: 26,
     }),

@@ -1494,8 +1494,11 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
     const layoutGroup = new THREE.Group();
     layoutGroup.name = `race-layout-${id}`;
     const raceBarriers: Aabb[] = [];
+    const raceBarrierCircles: CircleCollider[] = [];
     const barrierMatrices: THREE.Matrix4[] = [];
     const barrierColors: THREE.Color[] = [];
+    const collisionHalfWidth =
+      barrierWidth / 2 + Math.min(1.15, barrierExtra * 0.5);
 
     const startDx = points[1].x - points[0].x;
     const startDz = points[1].z - points[0].z;
@@ -1566,11 +1569,15 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
         const highX = bx + ux * end;
         const highZ = bz + uz * end;
         raceBarriers.push({
-          minX: Math.min(lowX, highX) - barrierWidth / 2 - barrierExtra,
-          maxX: Math.max(lowX, highX) + barrierWidth / 2 + barrierExtra,
-          minZ: Math.min(lowZ, highZ) - barrierWidth / 2 - barrierExtra,
-          maxZ: Math.max(lowZ, highZ) + barrierWidth / 2 + barrierExtra,
+          minX: Math.min(lowX, highX) - collisionHalfWidth,
+          maxX: Math.max(lowX, highX) + collisionHalfWidth,
+          minZ: Math.min(lowZ, highZ) - collisionHalfWidth,
+          maxZ: Math.max(lowZ, highZ) + collisionHalfWidth,
         });
+        raceBarrierCircles.push(
+          { x: lowX, z: lowZ, radius: collisionHalfWidth },
+          { x: highX, z: highZ, radius: collisionHalfWidth },
+        );
         for (let t = start; t < end; t += blockLength) {
           const bxPos = bx + ux * (t + blockLength / 2);
           const bzPos = bz + uz * (t + blockLength / 2);
@@ -1602,11 +1609,17 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
           ),
         );
         barrierColors.push(new THREE.Color(ci % 2 === 0 ? 0xd9342f : 0xe8e8e8));
-        const half = barrierWidth / 2 + barrierExtra;
+        const half = collisionHalfWidth;
+        const capX = rotationY === 0 ? length / 2 : 0;
+        const capZ = rotationY === 0 ? 0 : length / 2;
+        raceBarrierCircles.push(
+          { x: x - capX, z: z - capZ, radius: half },
+          { x: x + capX, z: z + capZ, radius: half },
+        );
         if (rotationY === 0) {
           raceBarriers.push({
-            minX: x - length / 2 - barrierExtra,
-            maxX: x + length / 2 + barrierExtra,
+            minX: x - length / 2 - half,
+            maxX: x + length / 2 + half,
             minZ: z - half,
             maxZ: z + half,
           });
@@ -1614,8 +1627,8 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
           raceBarriers.push({
             minX: x - half,
             maxX: x + half,
-            minZ: z - length / 2 - barrierExtra,
-            maxZ: z + length / 2 + barrierExtra,
+            minZ: z - length / 2 - half,
+            maxZ: z + length / 2 + half,
           });
         }
       };
@@ -1734,6 +1747,7 @@ export function buildCity(scene: THREE.Scene, options?: { quality?: QualityPrese
       startSlots,
       startHeading,
       raceBarriers,
+      raceBarrierCircles,
       checkpointRadius,
       corridorWidth,
     };

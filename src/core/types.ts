@@ -133,6 +133,7 @@ export interface RaceLayout {
   startSlots: { x: number; z: number }[];
   startHeading: number;
   raceBarriers: Aabb[];
+  raceBarrierCircles: CircleCollider[];
   checkpointRadius: number;
   corridorWidth: number;
 }

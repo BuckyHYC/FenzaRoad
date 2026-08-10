@@ -651,6 +651,10 @@ test('race barriers stay off the perimeter race road', async ({ page }) => {
           minZ: number;
           maxZ: number;
         }[];
+        raceLayouts: {
+          id: string;
+          raceBarrierCircles: { radius: number }[];
+        }[];
       };
     };
     const roadRects = [
@@ -670,10 +674,23 @@ test('race barriers stay off the perimeter race road', async ({ page }) => {
     const blocked = game.city.raceBarriers.filter((barrier) =>
       roadRects.some((road) => overlaps(barrier, road)),
     ).length;
-    return { count: game.city.raceBarriers.length, blocked };
+    const perimeter = game.city.raceLayouts.find(
+      (layout) => layout.id === 'perimeter',
+    );
+    return {
+      count: game.city.raceBarriers.length,
+      blocked,
+      circleCount: perimeter?.raceBarrierCircles.length ?? 0,
+      maxCircleRadius: Math.max(
+        0,
+        ...(perimeter?.raceBarrierCircles.map((circle) => circle.radius) ?? []),
+      ),
+    };
   });
   expect(result.count).toBeGreaterThan(0);
   expect(result.blocked).toBe(0);
+  expect(result.circleCount).toBeGreaterThan(0);
+  expect(result.maxCircleRadius).toBeLessThan(2.2);
 });
 
 test('race menu switches layouts and boundary fence sits outside the map', async ({ page }) => {

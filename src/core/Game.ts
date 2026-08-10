@@ -571,7 +571,10 @@ export class Game {
           ...this.city.boundaryColliders,
           ...layout.raceBarriers,
         ],
-        avoidCircles: this.city.treeColliders,
+        avoidCircles: [
+          ...this.city.treeColliders,
+          ...layout.raceBarrierCircles,
+        ],
       },
     );
     this.race.init(
@@ -1138,6 +1141,24 @@ export class Game {
         }
         vehicle.x += nx * overlap;
         vehicle.z += nz * overlap;
+        const vn = velocity.vx * nx + velocity.vz * nz;
+        if (vn < -1.5) {
+          vehicle.speed *= 0.55;
+          vehicle.lateral *= 0.5;
+          emitCollision(Math.min(1, -vn / 10));
+        }
+      }
+      for (const circle of this.getActiveRaceLayout().raceBarrierCircles) {
+        const dx = vehicle.x - circle.x;
+        const dz = vehicle.z - circle.z;
+        const minDist = radius + circle.radius;
+        const distSq = dx * dx + dz * dz;
+        if (distSq >= minDist * minDist || distSq < 1e-6) continue;
+        const dist = Math.sqrt(distSq);
+        const nx = dx / dist;
+        const nz = dz / dist;
+        vehicle.x += nx * (minDist - dist);
+        vehicle.z += nz * (minDist - dist);
         const vn = velocity.vx * nx + velocity.vz * nz;
         if (vn < -1.5) {
           vehicle.speed *= 0.55;
