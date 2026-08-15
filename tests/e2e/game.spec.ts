@@ -198,6 +198,64 @@ test('drift pose rotates the model without changing driving physics', async ({ p
   );
 });
 
+test('drift visually counter-steers front wheels and restores after release', async ({ page }) => {
+  await boot(page);
+  await page.getByRole('button', { name: '自由漫游' }).click();
+  const result = await page.evaluate(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      player: {
+        speed: number;
+        lateral: number;
+        heading: number;
+        visuals: {
+          frontLeftPivot: { rotation: { y: number } };
+          frontRightPivot: { rotation: { y: number } };
+        };
+        getDriftPose: () => number;
+        update: (dt: number, input: {
+          throttle: number;
+          brake: number;
+          steer: number;
+          handbrake: boolean;
+        }) => void;
+      };
+    };
+    const player = game.player;
+    // 正常转向（右打方向）：前轮显示正向
+    player.speed = 18;
+    player.lateral = 0;
+    player.heading = 0;
+    player.update(0.06, { throttle: 0, brake: 0, steer: 0.8, handbrake: false });
+    const normalSteer = player.visuals.frontLeftPivot.rotation.y;
+    // 漂移（右打 + 手刹）：前轮视觉反打（负向）
+    player.update(0.06, { throttle: 0, brake: 0, steer: 0.8, handbrake: true });
+    player.update(0.06, { throttle: 0, brake: 0, steer: 0.8, handbrake: true });
+    const pose = player.getDriftPose();
+    const driftSteer = player.visuals.frontLeftPivot.rotation.y;
+    const driftSteerRight = player.visuals.frontRightPivot.rotation.y;
+    // 松开手刹并回正：前轮恢复正常（回到 0 附近）
+    player.update(0.06, { throttle: 0, brake: 0, steer: 0, handbrake: false });
+    const releaseSteer = player.visuals.frontLeftPivot.rotation.y;
+    return {
+      normalSteer,
+      driftSteer,
+      driftSteerRight,
+      pose,
+      releaseSteer,
+    };
+  });
+  expect(result.normalSteer).toBeGreaterThan(0.05);
+  expect(result.pose).toBeGreaterThan(0.4);
+  // 漂移中前轮与正常转向方向相反（反打）
+  expect(result.driftSteer).toBeLessThan(-0.05);
+  expect(Math.sign(result.driftSteer)).not.toBe(Math.sign(result.normalSteer));
+  // 左右前轮一致反打
+  expect(Math.abs(result.driftSteer - result.driftSteerRight)).toBeLessThan(0.001);
+  // 漂移结束后前轮恢复正常（回正到 0 附近）
+  expect(result.releaseSteer).toBeGreaterThan(-0.05);
+  expect(result.releaseSteer).toBeLessThan(0.05);
+});
+
 test('traffic signals have poles and three lamp heads', async ({ page }) => {
   await boot(page);
   const result = await page.evaluate(() => {

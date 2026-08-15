@@ -269,8 +269,11 @@ export class PlayerVehicle {
     group.position.set(this.x, this.groundY, this.z);
     group.rotation.y = this.heading + this.driftPose * this.steerAngle * 2.6;
     group.rotation.z = this.driftPose * this.steerAngle * 0.3;
-    this.visuals.frontLeftPivot.rotation.y = this.steerAngle;
-    this.visuals.frontRightPivot.rotation.y = this.steerAngle;
+    // 漂移中前轮视觉反打：随漂移姿态由正常转向平滑过渡到与实际转向相反，
+    // 模拟真实漂移的反打姿态；漂移结束后恢复。纯视觉，不影响物理 steerAngle。
+    const counterSteer = this.steerAngle * (1 - 2 * this.driftPose);
+    this.visuals.frontLeftPivot.rotation.y = counterSteer;
+    this.visuals.frontRightPivot.rotation.y = counterSteer;
     if (this.visuals.steeringWheel) {
       this.visuals.steeringWheel.rotation.z = this.steerAngle * 1.8;
     }
