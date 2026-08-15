@@ -316,11 +316,11 @@ export class RaceManager {
 
       // —— 目标点：随速度拉长前视，但弯道前截断，避免切内弯撞树/围墙 ——
       const maxLookahead = Math.max(38, Math.min(85, vehicle.speed * 2.1));
-      const lookahead = Math.min(
-        maxLookahead,
-        this.cornerAwareLookahead(currentParam, Math.min(delta, maxLookahead)),
+      const corner = this.cornerAwareLookahead(
+        currentParam,
+        Math.min(delta, maxLookahead),
       );
-      const wp = this.routePointAtParam(currentParam + lookahead);
+      const wp = this.routePointAtParam(currentParam + corner.lookahead);
       const dx = wp.x - vehicle.x;
       const dz = wp.z - vehicle.z;
       const dist = Math.hypot(dx, dz);
@@ -345,11 +345,14 @@ export class RaceManager {
 
       const nearCorner = dist < 60 ? config.cornerScale : 1;
       const baseLimit = vehicle.spec.topSpeedMs * config.speedScale * nearCorner * rubber;
-      const turnFactor = Math.max(0.38, 1 - Math.abs(angleDiff) * 0.6);
-      let targetSpeed = baseLimit * turnFactor;
+      // 弯道限速：基于前方累计转向角（曲率）提前平滑降速，下限更高，过弯更快
+      const cornerFactor = Math.max(0.58, 1 - corner.turn * 0.45);
+      // 瞬态转角：当前转向需求很大时再进一步收油（不再把速度压到 38%）
+      const turnFactor = Math.max(0.62, 1 - Math.abs(angleDiff) * 0.5);
+      let targetSpeed = baseLimit * Math.min(cornerFactor, turnFactor);
       // 前方障碍越近越慢（带最低速，除非完全被堵死）
       if (avoidance.closest < 30) {
-        targetSpeed = Math.min(targetSpeed, Math.max(3.5, avoidance.closest * 0.5));
+        targetSpeed = Math.min(targetSpeed, Math.max(4.5, avoidance.closest * 0.6));
       }
       if (avoidance.blocked) targetSpeed = 0;
 
@@ -425,21 +428,27 @@ export class RaceManager {
    * 弯道感知的前视距离：从当前位置沿路线逐步前探，
    * 一旦方向与当前切线偏转超过阈值（前方在转弯），就截断前视，
    * 让目标点停在弯道入口处，跟随弯道而非切弦穿过。
+   * 同时返回前视范围内路线的累计转向角（曲率），供弯道限速使用。
    */
-  private cornerAwareLookahead(param: number, maxLookahead: number): number {
+  private cornerAwareLookahead(
+    param: number,
+    maxLookahead: number,
+  ): { lookahead: number; turn: number } {
     const max = Math.max(0, maxLookahead);
-    if (max < 8 || this.routeTotal <= 0) return max;
+    if (max < 8 || this.routeTotal <= 0) return { lookahead: max, turn: 0 };
     const base = this.routePointAtParam(param);
     const baseHeading = this.routeHeadingAt(param);
     let result = Math.min(max, 22);
+    let turn = 0;
     for (let len = 22; len <= max; len += 6) {
       const wp = this.routePointAtParam(param + len);
       const dir = Math.atan2(wp.x - base.x, wp.z - base.z);
       const diff = Math.abs(normalizeAngle(dir - baseHeading));
+      turn = Math.max(turn, diff);
       if (diff > 0.9) break; // 前方转向超过 ~52°，目标停在弯道入口
       result = len;
     }
-    return result;
+    return { lookahead: result, turn };
   }
 
   private computeAvoidance(
