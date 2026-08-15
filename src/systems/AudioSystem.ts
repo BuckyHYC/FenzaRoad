@@ -11,6 +11,7 @@ export class AudioSystem {
   private muted = false;
   private bgmVolume = 1;
   private sfxVolume = 1;
+  private lastCollisionTime = 0;
 
   init(): void {
     if (this.ctx) return;
@@ -116,6 +117,10 @@ export class AudioSystem {
 
   playCollision(intensity: number): void {
     if (!this.ctx || !this.noiseBuffer || this.muted) return;
+    // 冷却：持续摩擦/贴靠不会每帧重复播放撞击音效
+    const now = this.ctx.currentTime;
+    if (now - this.lastCollisionTime < 0.14) return;
+    this.lastCollisionTime = now;
     const t = Number.isFinite(intensity) ? Math.max(0, Math.min(1, intensity)) : 0;
     if (t < 0.25) return;
     const source = this.ctx.createBufferSource();

@@ -213,12 +213,18 @@ export class TrafficSystem {
   }
 
   getNpcs(): { x: number; z: number; radius: number; vehicle: PlayerVehicle }[] {
-    return this.npcs.map((npc) => ({
-      x: npc.vehicle.x,
-      z: npc.vehicle.z,
-      radius: npc.radius,
-      vehicle: npc.vehicle,
-    }));
+    const result: { x: number; z: number; radius: number; vehicle: PlayerVehicle }[] = [];
+    for (const npc of this.npcs) {
+      // 淡出回收中的车近乎不可见，不应继续参与碰撞
+      if (npc.fading) continue;
+      result.push({
+        x: npc.vehicle.x,
+        z: npc.vehicle.z,
+        radius: npc.radius,
+        vehicle: npc.vehicle,
+      });
+    }
+    return result;
   }
 
   syncVehicleSpeed(vehicle: PlayerVehicle): void {

@@ -24,11 +24,18 @@ export class InputSystem {
   private touchMoveZ = 0;
   private touchHandbrake = false;
   private touchActive = false;
+  private rightDown = false;
+  private orbitDelta = 0;
 
   constructor() {
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
     window.addEventListener('blur', this.onBlur);
+    window.addEventListener('pointerdown', this.onPointerDown);
+    window.addEventListener('pointermove', this.onPointerMove);
+    window.addEventListener('pointerup', this.onPointerUp);
+    window.addEventListener('pointercancel', this.onPointerUp);
+    window.addEventListener('contextmenu', this.onContextMenu);
   }
 
   setTouch(moveX: number, moveZ: number, handbrake: boolean): void {
@@ -68,10 +75,26 @@ export class InputSystem {
     this.pressedQueue.push(action);
   }
 
+  /** 返回自上次调用以来右键拖拽的横向像素增量（并清零） */
+  consumeOrbitDelta(): number {
+    const delta = this.orbitDelta;
+    this.orbitDelta = 0;
+    return delta;
+  }
+
+  isOrbitDragging(): boolean {
+    return this.rightDown;
+  }
+
   dispose(): void {
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
     window.removeEventListener('blur', this.onBlur);
+    window.removeEventListener('pointerdown', this.onPointerDown);
+    window.removeEventListener('pointermove', this.onPointerMove);
+    window.removeEventListener('pointerup', this.onPointerUp);
+    window.removeEventListener('pointercancel', this.onPointerUp);
+    window.removeEventListener('contextmenu', this.onContextMenu);
   }
 
   private readonly onKeyDown = (event: KeyboardEvent): void => {
@@ -90,5 +113,24 @@ export class InputSystem {
   private readonly onBlur = (): void => {
     this.keys.clear();
     this.touchActive = false;
+    this.rightDown = false;
+  };
+
+  private readonly onPointerDown = (event: PointerEvent): void => {
+    if (event.button === 2) this.rightDown = true;
+  };
+
+  private readonly onPointerMove = (event: PointerEvent): void => {
+    if (this.rightDown && event.buttons & 2) {
+      this.orbitDelta += event.movementX;
+    }
+  };
+
+  private readonly onPointerUp = (event: PointerEvent): void => {
+    if (event.button === 2) this.rightDown = false;
+  };
+
+  private readonly onContextMenu = (event: Event): void => {
+    event.preventDefault();
   };
 }

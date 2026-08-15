@@ -2165,6 +2165,59 @@ test('minimap shows blue task point markers in free roam', async ({ page }) => {
   }, undefined, { timeout: 5000 });
 });
 
+test('right-drag orbits chase camera and resets on release', async ({ page }) => {
+  await boot(page);
+  await page.getByRole('button', { name: '自由漫游' }).click();
+  await expect(page.locator('#hud')).toBeVisible();
+  // 等追尾相机从菜单环绕位平滑过渡并稳定下来
+  await page.waitForTimeout(2000);
+
+  const angle = () =>
+    page.evaluate(() => {
+      const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+        camera: { position: { x: number; z: number } };
+        player: { x: number; z: number };
+      };
+      return Math.atan2(
+        game.camera.position.x - game.player.x,
+        game.camera.position.z - game.player.z,
+      );
+    });
+
+  const before = await angle();
+  // 按住右键向右拖动（幅度足够大，便于与复位区分）
+  await page.mouse.move(640, 400);
+  await page.mouse.down({ button: 'right' });
+  for (let i = 1; i <= 10; i += 1) {
+    await page.mouse.move(640 + i * 50, 400);
+    await page.waitForTimeout(25);
+  }
+  await page.mouse.up({ button: 'right' });
+  await page.waitForTimeout(350);
+  const during = await angle();
+  // 松开后平滑复位
+  await page.waitForTimeout(1600);
+  const after = await angle();
+  const inputState = await page.evaluate(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      input?: { isOrbitDragging: () => boolean };
+      orbitYaw?: number;
+    };
+    return {
+      dragging: game.input?.isOrbitDragging() ?? null,
+      orbitYaw: game.orbitYaw ?? null,
+    };
+  });
+  let delta = during - before;
+  while (delta > Math.PI) delta -= Math.PI * 2;
+  while (delta < -Math.PI) delta += Math.PI * 2;
+  let reset = after - before;
+  while (reset > Math.PI) reset -= Math.PI * 2;
+  while (reset < -Math.PI) reset += Math.PI * 2;
+  expect(Math.abs(delta)).toBeGreaterThan(0.08);
+  expect(Math.abs(reset)).toBeLessThan(0.08);
+});
+
 test('npc collision offsets vehicle then returns to path smoothly', async ({ page }) => {
   await boot(page);
   await page.getByRole('button', { name: '自由漫游' }).click();

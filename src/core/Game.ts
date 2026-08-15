@@ -126,6 +126,7 @@ export class Game {
   private distanceCoinAccum = 0;
   private readonly cameraPosition = new THREE.Vector3();
   private readonly cameraLook = new THREE.Vector3();
+  private orbitYaw = 0;
   private activeFov: number = CAMERA_CONFIG.FOV;
   private garageSwitchT = 1;
   private thumbRenderer: THREE.WebGLRenderer | null = null;
@@ -1139,6 +1140,18 @@ export class Game {
   }
 
   private updateChaseCamera(dt: number): void {
+    // 第三人称下按住鼠标右键左右拖动：以车为中心环绕视角，松开后平滑复位
+    if (this.cameraMode === 'chase') {
+      this.orbitYaw += this.input.consumeOrbitDelta() * 0.0045;
+      if (!this.input.isOrbitDragging()) {
+        this.orbitYaw *= Math.exp(-4.5 * dt);
+        if (Math.abs(this.orbitYaw) < 0.004) this.orbitYaw = 0;
+      }
+    } else {
+      // 引擎盖视角不使用环绕，丢弃遗留增量
+      this.input.consumeOrbitDelta();
+      this.orbitYaw = 0;
+    }
     const fx = Math.sin(this.player.heading);
     const fz = Math.cos(this.player.heading);
     const groundY = this.player.groundY;
@@ -1150,6 +1163,14 @@ export class Game {
       desiredX = this.player.x - fx * CAMERA_CONFIG.CHASE_DISTANCE;
       desiredY = CAMERA_CONFIG.CHASE_HEIGHT + groundY;
       desiredZ = this.player.z - fz * CAMERA_CONFIG.CHASE_DISTANCE;
+      if (this.orbitYaw !== 0) {
+        const relX = desiredX - this.player.x;
+        const relZ = desiredZ - this.player.z;
+        const cos = Math.cos(this.orbitYaw);
+        const sin = Math.sin(this.orbitYaw);
+        desiredX = this.player.x + relX * cos - relZ * sin;
+        desiredZ = this.player.z + relX * sin + relZ * cos;
+      }
       this.cameraLook.set(
         this.player.x + fx * CAMERA_CONFIG.LOOK_AHEAD,
         CAMERA_CONFIG.LOOK_HEIGHT + groundY,
@@ -1448,9 +1469,14 @@ export class Game {
     otherVehicle.setVelocity(vb.vx + ibx, vb.vz + ibz);
     if (vehicle !== this.player) this.traffic.onVehicleHit(vehicle);
     if (otherVehicle !== this.player) this.traffic.onVehicleHit(otherVehicle);
-    const intensity = Math.min(1, -relN / 14);
-    eventBus.emit(Events.VEHICLE_COLLISION, { intensity });
-    this.audio.playCollision(intensity);
+    // 只有涉及玩家的碰撞才反馈音效/闪屏，避免远处 NPC 互撞产生虚假撞击提示
+    if (vehicle === this.player || otherVehicle === this.player) {
+      const intensity = Math.min(1, -relN / 14);
+      if (intensity >= 0.22) {
+        eventBus.emit(Events.VEHICLE_COLLISION, { intensity });
+        this.audio.playCollision(intensity);
+      }
+    }
   }
 
   private clampToBounds(vehicle: PlayerVehicle): void {
