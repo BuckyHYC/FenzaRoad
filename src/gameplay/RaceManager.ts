@@ -313,59 +313,160 @@ export class RaceManager {
       const currentParam = this.closestRouteParam(vehicle.x, vehicle.z);
       let delta = this.checkpointParams[nextIndex] - currentParam;
       if (delta < 0) delta += this.routeTotal;
-      const lookahead = Math.max(35, Math.min(75, vehicle.speed * 1.8));
-      const targetParam = currentParam + Math.min(delta, lookahead);
-      const wp =
-        this.routeTotal > 0
-          ? this.routePointAtParam(targetParam)
-          : this.checkpoints[nextIndex];
+
+      // —— 目标点：随速度拉长前视，但弯道前截断，避免切内弯撞树/围墙 ——
+      const maxLookahead = Math.max(38, Math.min(85, vehicle.speed * 2.1));
+      const lookahead = Math.min(
+        maxLookahead,
+        this.cornerAwareLookahead(currentParam, Math.min(delta, maxLookahead)),
+      );
+      const wp = this.routePointAtParam(currentParam + lookahead);
       const dx = wp.x - vehicle.x;
       const dz = wp.z - vehicle.z;
       const dist = Math.hypot(dx, dz);
       const targetHeading = Math.atan2(dx, dz);
       const angleDiff = normalizeAngle(targetHeading - vehicle.heading);
+
+      // —— 横向纠偏：偏离路线中心越远越拉回，保持循迹不偏航 ——
+      const lateral = this.routeLateralAt(vehicle.x, vehicle.z, currentParam);
+      const lanePull = Math.max(-0.5, Math.min(0.5, -lateral * 0.12));
+
       const avoidance = this.computeAvoidance(vehicle);
       const steer = Math.max(
         -1,
-        Math.min(1, angleDiff * 2.1 + avoidance.steer),
+        Math.min(1, angleDiff * 2.0 + lanePull + avoidance.steer),
       );
 
+      // —— 速度控制：难度 + 弯道转角 + 前方障碍，且保留最低入弯速度 ——
       const progress = this.getProgress(racer);
       let rubber = 1;
       if (playerProgress - progress > 1.2) rubber = config.rubberband;
       else if (progress - playerProgress > 1.2) rubber = 1 / config.rubberband;
 
-      const nearCorner = dist < 55 ? config.cornerScale : 1;
-      const speedLimit = vehicle.spec.topSpeedMs * config.speedScale * nearCorner * rubber;
-      const sharp = Math.abs(angleDiff) > 0.95;
-      const throttle = !sharp && vehicle.speed < speedLimit * 0.98 ? 1 : 0;
-      const braking =
-        sharp || avoidance.brake > 0 || vehicle.speed > speedLimit * 1.04;
-      const brake = braking
-        ? Math.max(sharp || vehicle.speed > speedLimit * 1.04 ? 1 : 0, avoidance.brake)
-        : 0;
-      vehicle.update(dt, { throttle, brake, steer, handbrake: false });
+      const nearCorner = dist < 60 ? config.cornerScale : 1;
+      const baseLimit = vehicle.spec.topSpeedMs * config.speedScale * nearCorner * rubber;
+      const turnFactor = Math.max(0.38, 1 - Math.abs(angleDiff) * 0.6);
+      let targetSpeed = baseLimit * turnFactor;
+      // 前方障碍越近越慢（带最低速，除非完全被堵死）
+      if (avoidance.closest < 30) {
+        targetSpeed = Math.min(targetSpeed, Math.max(3.5, avoidance.closest * 0.5));
+      }
+      if (avoidance.blocked) targetSpeed = 0;
+
+      // 加减速平滑，低速保油防刹停（转向依赖速度，0 速会卡死在弯里）
+      const speedError = targetSpeed - vehicle.speed;
+      const throttle = speedError > 0.3 ? 1 : 0;
+      const brake =
+        speedError < -0.4 ? Math.min(0.85, -speedError / 6) : 0;
+      let finalThrottle = throttle;
+      if (vehicle.speed < 5) {
+        if (avoidance.blocked) {
+          // 被障碍堵死：若避障转向方向明确则缓慢蠕行绕开，否则原地等待
+          finalThrottle = Math.abs(avoidance.steer) > 0.45 ? 0.35 : 0;
+        } else {
+          // 低速时保油，保证转向能力，避免停在弯心
+          finalThrottle = Math.max(throttle, 0.55);
+        }
+      }
+      vehicle.update(dt, {
+        throttle: finalThrottle,
+        brake,
+        steer,
+        handbrake: false,
+      });
     }
+  }
+
+  /** 路线在某参数处的切线航向 */
+  private routeHeadingAt(param: number): number {
+    const total = this.routeTotal;
+    if (total <= 0 || this.routePoints.length < 2) return 0;
+    const p = ((param % total) + total) % total;
+    for (let i = 0; i < this.routePoints.length; i += 1) {
+      const start = this.routeCumulative[i];
+      const end = this.routeCumulative[i + 1];
+      if (p < start || p > end) continue;
+      const a = this.routePoints[i];
+      const b = this.routePoints[(i + 1) % this.routePoints.length];
+      return Math.atan2(b.x - a.x, b.z - a.z);
+    }
+    return Math.atan2(
+      this.routePoints[1].x - this.routePoints[0].x,
+      this.routePoints[1].z - this.routePoints[0].z,
+    );
+  }
+
+  /** 位置在路线上的有符号侧向偏移（法线方向），用于纠偏 */
+  private routeLateralAt(px: number, pz: number, param: number): number {
+    const total = this.routeTotal;
+    if (total <= 0 || this.routePoints.length < 2) return 0;
+    const p = ((param % total) + total) % total;
+    for (let i = 0; i < this.routePoints.length; i += 1) {
+      const start = this.routeCumulative[i];
+      const end = this.routeCumulative[i + 1];
+      if (p < start || p > end) continue;
+      const len = end - start;
+      if (len <= 0) continue;
+      const a = this.routePoints[i];
+      const b = this.routePoints[(i + 1) % this.routePoints.length];
+      const t = (p - start) / len;
+      const abx = b.x - a.x;
+      const abz = b.z - a.z;
+      const projX = a.x + abx * t;
+      const projZ = a.z + abz * t;
+      const nx = abz / len;
+      const nz = -abx / len;
+      return (px - projX) * nx + (pz - projZ) * nz;
+    }
+    return 0;
+  }
+
+  /**
+   * 弯道感知的前视距离：从当前位置沿路线逐步前探，
+   * 一旦方向与当前切线偏转超过阈值（前方在转弯），就截断前视，
+   * 让目标点停在弯道入口处，跟随弯道而非切弦穿过。
+   */
+  private cornerAwareLookahead(param: number, maxLookahead: number): number {
+    const max = Math.max(0, maxLookahead);
+    if (max < 8 || this.routeTotal <= 0) return max;
+    const base = this.routePointAtParam(param);
+    const baseHeading = this.routeHeadingAt(param);
+    let result = Math.min(max, 22);
+    for (let len = 22; len <= max; len += 6) {
+      const wp = this.routePointAtParam(param + len);
+      const dir = Math.atan2(wp.x - base.x, wp.z - base.z);
+      const diff = Math.abs(normalizeAngle(dir - baseHeading));
+      if (diff > 0.9) break; // 前方转向超过 ~52°，目标停在弯道入口
+      result = len;
+    }
+    return result;
   }
 
   private computeAvoidance(
     vehicle: PlayerVehicle,
-  ): { steer: number; brake: number } {
+  ): { steer: number; brake: number; closest: number; blocked: boolean } {
     const fx = Math.sin(vehicle.heading);
     const fz = Math.cos(vehicle.heading);
     const rx = fz;
     const rz = -fx;
-    const lookAhead = 46;
-    const lateralRange = 7.5;
-    const vehicleRadius = vehicle.spec.width / 2 + 0.65;
+    const lookAhead = 64;
+    const lateralRange = 9;
+    const vehicleRadius = vehicle.spec.width / 2 + 0.7;
     let steer = 0;
     let brake = 0;
+    let closest = Infinity;
+    let blocked = false;
+    const weightFor = (hit: number, lateral: number, range: number): number => {
+      const latAbs = Math.abs(lateral);
+      if (latAbs > range) return 0;
+      return (1 - hit / lookAhead) * (1 - latAbs / range);
+    };
     if (this.avoidBoxGrid) {
       for (const box of queryAabbGrid(
         this.avoidBoxGrid,
         vehicle.x,
         vehicle.z,
-        lookAhead + 8,
+        lookAhead + 10,
       )) {
         const hit = rayHitAabb(
           vehicle.x,
@@ -380,13 +481,14 @@ export class RaceManager {
         const closestZ = Math.max(box.minZ, Math.min(vehicle.z, box.maxZ));
         const lateral =
           (closestX - vehicle.x) * rx + (closestZ - vehicle.z) * rz;
-        if (Math.abs(lateral) > lateralRange) continue;
-        const weight =
-          (1 - hit / lookAhead) * (1 - Math.abs(lateral) / lateralRange);
-        steer += -Math.sign(lateral || 1) * weight * 1.25;
-        if (hit < 16 && Math.abs(lateral) < 5.5) {
+        const weight = weightFor(hit, lateral, lateralRange);
+        if (weight <= 0) continue;
+        steer += -Math.sign(lateral || 1) * weight * 1.7;
+        if (hit < 18 && Math.abs(lateral) < 6.5) {
           brake = Math.max(brake, weight);
         }
+        closest = Math.min(closest, hit);
+        if (hit < 9 && Math.abs(lateral) < 3) blocked = true;
       }
     }
     if (this.avoidCircleGrid) {
@@ -405,20 +507,24 @@ export class RaceManager {
           vehicleRadius,
         );
         if (!hitInfo || hitInfo.hit > lookAhead) continue;
-        const lateralRangeForCircle = lateralRange + circle.radius;
-        if (Math.abs(hitInfo.lateral) > lateralRangeForCircle) continue;
-        const weight =
-          (1 - hitInfo.hit / lookAhead) *
-          (1 - Math.abs(hitInfo.lateral) / lateralRangeForCircle);
-        steer += -Math.sign(hitInfo.lateral || 1) * weight * 1.35;
-        if (hitInfo.hit < 18 && Math.abs(hitInfo.lateral) < circle.radius + 5.5) {
+        const range = lateralRange + circle.radius;
+        const weight = weightFor(hitInfo.hit, hitInfo.lateral, range);
+        if (weight <= 0) continue;
+        steer += -Math.sign(hitInfo.lateral || 1) * weight * 1.8;
+        if (hitInfo.hit < 20 && Math.abs(hitInfo.lateral) < circle.radius + 6) {
           brake = Math.max(brake, weight);
+        }
+        closest = Math.min(closest, hitInfo.hit);
+        if (hitInfo.hit < 10 && Math.abs(hitInfo.lateral) < circle.radius + 2.5) {
+          blocked = true;
         }
       }
     }
     return {
       steer: Math.max(-1, Math.min(1, steer)),
       brake: Math.max(0, Math.min(1, brake)),
+      closest: Number.isFinite(closest) ? closest : Infinity,
+      blocked,
     };
   }
 

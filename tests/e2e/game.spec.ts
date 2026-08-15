@@ -929,6 +929,60 @@ test('race AI opponents follow the route and keep moving', async ({ page }) => {
   }
 });
 
+test('race AI keeps moving, stays near the route and does not stall', async ({ page }) => {
+  await boot(page);
+  await page.getByRole('button', { name: '竞速模式' }).click();
+  await page.getByRole('button', { name: '开始比赛' }).click();
+  await page.waitForFunction(() => {
+    const g = window as unknown as GameWindow;
+    return g.__GAME_STATE__.race.phase === 'racing';
+  }, { timeout: 15000 });
+
+  // 20 秒采样：速度（不刹停）+ 路线侧向偏离（不撞出赛道）
+  const samples = await page.evaluate(async () => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      race: {
+        racers: Array<{ vehicle: { speed: number; x: number; z: number } }>;
+        closestRouteParam: (x: number, z: number) => number;
+        routeLateralAt: (x: number, z: number, param: number) => number;
+      };
+    };
+    const race = game.race;
+    const out: { speed: number; lateral: number }[][] = [];
+    for (let i = 0; i < 40; i += 1) {
+      out.push(
+        race.racers.slice(1).map((racer) => {
+          const v = racer.vehicle;
+          const param = race.closestRouteParam(v.x, v.z);
+          return {
+            speed: v.speed,
+            lateral: Math.abs(race.routeLateralAt(v.x, v.z, param)),
+          };
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    return out;
+  });
+
+  const aiCount = samples[0].length;
+  expect(aiCount).toBeGreaterThan(0);
+  for (let i = 0; i < aiCount; i += 1) {
+    const speeds = samples.map((s) => s[i].speed);
+    const laterals = samples.map((s) => s[i].lateral);
+    const avgSpeed = speeds.reduce((a, b) => a + b, 0) / speeds.length;
+    const stalled = speeds.filter((s) => s < 1).length;
+    const maxLateral = Math.max(...laterals);
+    const avgLateral = laterals.reduce((a, b) => a + b, 0) / laterals.length;
+    // 不刹停：平均速度足够高，且极少长时间停住
+    expect(avgSpeed).toBeGreaterThan(6);
+    expect(stalled).toBeLessThan(6);
+    // 不偏航：全程不超出护栏（护栏距路线中心约 16.5m），且平均贴近路线
+    expect(maxLateral).toBeLessThan(22);
+    expect(avgLateral).toBeLessThan(11);
+  }
+});
+
 test('boundary collision stops the car at the visible fence', async ({ page }) => {
   await boot(page);
   await page.getByRole('button', { name: '自由漫游' }).click();
