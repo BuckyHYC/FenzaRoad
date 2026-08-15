@@ -2132,6 +2132,15 @@ test('minimap shows blue task point markers in free roam', async ({ page }) => {
     return dots.length === 4 && dots.filter((d) => d.kind === 'task').length === 3;
   }, undefined, { timeout: 5000 });
 
+  // 任务点模型必须挂在场景中（防止渲染缺失回归）
+  const mounted = await page.evaluate(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      taskPoints: { points: Array<{ group: { parent: unknown } }> };
+    };
+    return game.taskPoints.points.every((p) => p.group.parent !== null);
+  });
+  expect(mounted).toBe(true);
+
   // 小地图画布上出现蓝色高亮标记
   await page.waitForFunction(() => {
     const canvas = document.querySelector('#minimap') as HTMLCanvasElement | null;

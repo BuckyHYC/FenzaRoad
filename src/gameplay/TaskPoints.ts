@@ -22,7 +22,9 @@ export class TaskPoints {
   constructor(scene: THREE.Scene) {
     scene.add(this.group);
     for (const def of TASK_POINTS) {
-      this.points.push(this.buildPoint(def));
+      const point = this.buildPoint(def);
+      this.points.push(point);
+      this.group.add(point.group);
     }
     this.group.visible = false;
   }
@@ -63,18 +65,17 @@ export class TaskPoints {
     group.name = `task-point-${def.id}`;
     group.position.set(def.x, 0, def.z);
     const r = def.radius;
-    const wallH = 3.4;
+    const wallH = 4.0;
 
-    // —— 发光圆柱墙：任何视角都能看到圈状边界 ——
+    // —— 发光圆柱墙：实心亮蓝（正常混合，不依赖 additive，任何角度都醒目）——
     const ringMat = new THREE.MeshBasicMaterial({
-      color: 0x2e9bff,
+      color: 0x2f9dff,
       transparent: true,
-      opacity: 0.4,
+      opacity: 0.88,
       side: THREE.DoubleSide,
       depthWrite: false,
       fog: false,
       toneMapped: false,
-      blending: THREE.AdditiveBlending,
     });
     const wall = new THREE.Mesh(
       new THREE.CylinderGeometry(r, r, wallH, 48, 1, true),
@@ -84,17 +85,36 @@ export class TaskPoints {
     wall.renderOrder = 1;
     group.add(wall);
 
+    // 外墙光晕（增加发光感）
+    const haloMat = new THREE.MeshBasicMaterial({
+      color: 0x2e9bff,
+      transparent: true,
+      opacity: 0.3,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      fog: false,
+      toneMapped: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const halo = new THREE.Mesh(
+      new THREE.CylinderGeometry(r + 0.9, r + 0.9, wallH + 0.8, 40, 1, true),
+      haloMat,
+    );
+    halo.position.y = wallH / 2;
+    halo.renderOrder = 0;
+    group.add(halo);
+
     // —— 顶部实心圆环（明确勾勒边界）——
     const rimMat = new THREE.MeshBasicMaterial({
       color: 0x55b4ff,
       transparent: true,
-      opacity: 0.95,
+      opacity: 1,
       side: THREE.DoubleSide,
       depthWrite: false,
       fog: false,
       toneMapped: false,
     });
-    const rim = new THREE.Mesh(new THREE.TorusGeometry(r, 0.32, 10, 64), rimMat);
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(r, 0.36, 10, 64), rimMat);
     rim.rotation.x = Math.PI / 2;
     rim.position.y = wallH + 0.1;
     rim.renderOrder = 3;
@@ -104,15 +124,15 @@ export class TaskPoints {
     const groundRimMat = new THREE.MeshBasicMaterial({
       color: 0x55b4ff,
       transparent: true,
-      opacity: 0.8,
+      opacity: 0.9,
       side: THREE.DoubleSide,
       depthWrite: false,
       fog: false,
       toneMapped: false,
     });
-    const groundRim = new THREE.Mesh(new THREE.TorusGeometry(r, 0.18, 8, 56), groundRimMat);
+    const groundRim = new THREE.Mesh(new THREE.TorusGeometry(r, 0.22, 8, 56), groundRimMat);
     groundRim.rotation.x = Math.PI / 2;
-    groundRim.position.y = 0.18;
+    groundRim.position.y = 0.2;
     groundRim.renderOrder = 2;
     group.add(groundRim);
 
@@ -141,29 +161,29 @@ export class TaskPoints {
       fog: false,
       toneMapped: false,
     });
-    const beacon = new THREE.Mesh(new THREE.OctahedronGeometry(1.1), beaconMat);
-    beacon.position.y = 11.5;
+    const beacon = new THREE.Mesh(new THREE.OctahedronGeometry(1.2), beaconMat);
+    beacon.position.y = 12;
     beacon.renderOrder = 5;
     group.add(beacon);
-    const haloMat = new THREE.MeshBasicMaterial({
+    const beaconHaloMat = new THREE.MeshBasicMaterial({
       color: 0x2e9bff,
       transparent: true,
-      opacity: 0.45,
+      opacity: 0.5,
       fog: false,
       toneMapped: false,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
     });
-    const halo = new THREE.Mesh(new THREE.SphereGeometry(2.6, 12, 9), haloMat);
-    halo.position.y = 11.5;
-    halo.renderOrder = 5;
-    group.add(halo);
+    const beaconHalo = new THREE.Mesh(new THREE.SphereGeometry(2.8, 12, 9), beaconHaloMat);
+    beaconHalo.position.y = 12;
+    beaconHalo.renderOrder = 5;
+    group.add(beaconHalo);
 
     // —— 地面光斑 ——
     const glowMat = new THREE.MeshBasicMaterial({
       color: 0x2e9bff,
       transparent: true,
-      opacity: 0.32,
+      opacity: 0.36,
       depthWrite: false,
       fog: false,
       toneMapped: false,

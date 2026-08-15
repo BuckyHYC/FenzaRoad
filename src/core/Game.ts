@@ -1171,10 +1171,15 @@ export class Game {
         desiredX = this.player.x + relX * cos - relZ * sin;
         desiredZ = this.player.z + relX * sin + relZ * cos;
       }
+      // 视线目标：正常追尾看车前方预瞄点；环绕幅度越大越偏向盯住车身中心，
+      // 保证「以车为中心」旋转时车始终在画面中央
+      const lookAheadX = this.player.x + fx * CAMERA_CONFIG.LOOK_AHEAD;
+      const lookAheadZ = this.player.z + fz * CAMERA_CONFIG.LOOK_AHEAD;
+      const orbitAmount = Math.min(1, Math.abs(this.orbitYaw) / 0.6);
       this.cameraLook.set(
-        this.player.x + fx * CAMERA_CONFIG.LOOK_AHEAD,
+        lookAheadX + (this.player.x - lookAheadX) * orbitAmount,
         CAMERA_CONFIG.LOOK_HEIGHT + groundY,
-        this.player.z + fz * CAMERA_CONFIG.LOOK_AHEAD,
+        lookAheadZ + (this.player.z - lookAheadZ) * orbitAmount,
       );
     } else {
       this.setCameraFov(CAMERA_CONFIG.HOOD_FOV);
