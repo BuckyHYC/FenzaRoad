@@ -1128,14 +1128,21 @@ export class Game {
       this.applyInteriorVisibility();
     }
     if (this.input.consume('mute')) this.toggleMute();
-    if (this.input.consume('interact')) {
-      if (
-        gameState.mode === 'freeRoam' &&
-        this.activeTaskPoint &&
-        !gameState.paused
-      ) {
-        this.openTaskPanel(this.activeTaskPoint);
-      }
+    if (this.input.consume('interact')) this.interactWithTask();
+  }
+
+  /** 与任务点交互：与按 E 相同（供任务提示按钮点击调用） */
+  interactWithTask(): void {
+    if (this.taskPanelOpen) {
+      this.closeTaskPanel();
+      return;
+    }
+    if (
+      gameState.mode === 'freeRoam' &&
+      this.activeTaskPoint &&
+      !gameState.paused
+    ) {
+      this.openTaskPanel(this.activeTaskPoint);
     }
   }
 

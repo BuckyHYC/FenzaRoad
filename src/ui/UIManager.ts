@@ -80,7 +80,7 @@ export class UIManager {
   private readonly multiplayerOverlay: HTMLDivElement;
   private readonly lobbyOverlay: HTMLDivElement;
   private readonly hudOverlay: HTMLDivElement;
-  private readonly taskHint: HTMLDivElement;
+  private readonly taskHint: HTMLButtonElement;
   private readonly taskRaceOverlay: HTMLDivElement;
   private readonly countdownOverlay: HTMLDivElement;
   private readonly pauseOverlay: HTMLDivElement;
@@ -141,9 +141,11 @@ export class UIManager {
     this.multiplayerOverlay = this.buildMultiplayer();
     this.lobbyOverlay = this.buildLobby();
     this.hudOverlay = this.buildHud();
-    this.taskHint = el('div', 'task-hint hidden') as HTMLDivElement;
+    this.taskHint = el('button', 'task-hint hidden') as HTMLButtonElement;
     this.taskHint.id = 'task-hint';
+    this.taskHint.type = 'button';
     this.taskHint.textContent = '按 E 开始竞速';
+    this.taskHint.addEventListener('click', () => this.game.interactWithTask());
     this.taskRaceOverlay = this.buildTaskRacePanel();
     this.countdownOverlay = el('div', 'overlay countdown-overlay hidden') as HTMLDivElement;
     this.pauseOverlay = this.buildPause();

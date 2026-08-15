@@ -1226,10 +1226,22 @@ button,
   font-weight: 700;
   letter-spacing: 0.08em;
   box-shadow: 0 10px 34px rgba(0, 0, 0, 0.45);
-  pointer-events: none;
+  cursor: pointer;
+  user-select: none;
+  pointer-events: auto;
   z-index: 35;
   white-space: nowrap;
   animation: title-toast-in 0.25s ease;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+}
+
+.task-hint:hover {
+  border-color: rgba(63, 176, 255, 0.95);
+  background: rgba(20, 36, 56, 0.9);
+}
+
+.task-hint:active {
+  transform: translateX(-50%) scale(0.97);
 }
 
 .task-race-panel {
