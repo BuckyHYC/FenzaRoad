@@ -86,6 +86,27 @@ export interface LaneInfo {
   lateralOffset: number;
 }
 
+export interface PlayerStats {
+  distanceKm: number;
+  endlessKm: number;
+  races: number;
+  raceWins: number;
+  topSpeedKmh: number;
+  playSeconds: number;
+  coinsEarned: number;
+}
+
+export interface DailyState {
+  /** 最近一次活跃的日期（YYYY-MM-DD，用于刷新每日任务） */
+  date: string;
+  /** 今日已完成并领取奖励的任务 id */
+  done: string[];
+  /** 最近一次签到的日期 */
+  checkInDate: string;
+  /** 连续签到天数 */
+  checkInStreak: number;
+}
+
 export interface SavedProgress {
   selectedVehicleId: string;
   selectedColor: string;
@@ -97,6 +118,11 @@ export interface SavedProgress {
   controlMode: ControlMode;
   density: Density;
   quality: QualityPreset;
+  coins: number;
+  ownedVehicleIds: string[];
+  stats: PlayerStats;
+  daily: DailyState;
+  unlockedAchievements: string[];
 }
 
 export interface PlayerState {
@@ -123,6 +149,19 @@ export interface RaceState {
   layoutId: RaceLayoutId;
   resultPosition: number;
   bestLapMs: number;
+}
+
+export interface RaceResultData {
+  position: number;
+  totalRacers: number;
+  bestLapMs: number;
+  totalMs: number;
+  difficulty: Difficulty;
+  /** 本次竞速获得的金币 */
+  reward: number;
+  isWin: boolean;
+  /** 是否刷新了该赛道/难度的最佳圈速纪录 */
+  newRecord: boolean;
 }
 
 export interface RaceLayout {

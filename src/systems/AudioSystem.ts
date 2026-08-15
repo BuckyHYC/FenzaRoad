@@ -84,6 +84,11 @@ export class AudioSystem {
     this.music?.start();
   }
 
+  /** 切换竞速 BGM（更紧张、更响） */
+  setRaceMusic(race: boolean): void {
+    this.music?.setRaceMode(race);
+  }
+
   suspend(): void {
     void this.ctx?.suspend();
   }

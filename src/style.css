@@ -125,6 +125,8 @@ button,
   align-items: flex-start;
   width: min(440px, 92vw);
   min-width: 320px;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
   padding: 34px 36px;
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 10px;
@@ -1158,6 +1160,395 @@ button,
   font-size: 12px;
 }
 
+/* ---------------- 金币 / 钱包 ---------------- */
+
+.wallet-chip {
+  color: #ffd84d;
+  border-color: rgba(255, 216, 77, 0.35);
+  background: rgba(255, 216, 77, 0.08);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.checkin-btn.checkin-ready {
+  color: #ffd84d;
+  border-color: rgba(255, 216, 77, 0.55);
+  background: rgba(255, 216, 77, 0.12);
+  animation: checkin-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes checkin-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 216, 77, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(255, 216, 77, 0);
+  }
+}
+
+.hud-coins {
+  position: fixed;
+  left: 18px;
+  bottom: 112px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 118px;
+  padding: 10px 14px;
+  border: 1px solid rgba(255, 216, 77, 0.28);
+  border-radius: 8px;
+  background: var(--panel-bg);
+  pointer-events: none;
+}
+
+.hud-coins-value {
+  font-size: 24px;
+  font-weight: 750;
+  line-height: 1.1;
+  color: #ffd84d;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------- 竞速任务触发点 ---------------- */
+
+.task-hint {
+  position: fixed;
+  left: 50%;
+  bottom: 148px;
+  transform: translateX(-50%);
+  padding: 12px 28px;
+  border: 1px solid rgba(63, 176, 255, 0.5);
+  border-radius: 999px;
+  background: rgba(8, 12, 18, 0.8);
+  color: #ffffff;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  z-index: 35;
+  white-space: nowrap;
+  animation: title-toast-in 0.25s ease;
+}
+
+.task-race-panel {
+  width: min(460px, 92vw);
+}
+
+/* ---------------- 生涯成就页 ---------------- */
+
+.progress-panel {
+  width: min(680px, 94vw);
+  max-height: 88vh;
+  overflow-y: auto;
+}
+
+.progress-wallet {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border: 1px solid rgba(255, 216, 77, 0.3);
+  border-radius: 8px;
+  background: rgba(255, 216, 77, 0.08);
+  margin-bottom: 6px;
+}
+
+.progress-wallet-value {
+  font-size: 22px;
+  font-weight: 800;
+  color: #ffd84d;
+  font-variant-numeric: tabular-nums;
+}
+
+.progress-section {
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.progress-section-title {
+  margin: 14px 0 8px;
+  font-size: 15px;
+  font-weight: 750;
+  color: var(--text);
+}
+
+.progress-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.progress-text {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.daily-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.daily-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.daily-item.done {
+  opacity: 0.55;
+  filter: grayscale(0.6);
+}
+
+.daily-item-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.daily-item-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.daily-item-name {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.daily-item-reward {
+  font-size: 12px;
+  font-weight: 700;
+  color: #ffd84d;
+  white-space: nowrap;
+}
+
+.daily-item-desc {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.daily-item-progress {
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.daily-item-tag {
+  font-size: 12px;
+  font-weight: 700;
+  color: #8ce99a;
+  white-space: nowrap;
+}
+
+.daily-bar {
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.daily-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #ffb545, #ffd84d);
+}
+
+.achievement-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.achievement-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  opacity: 0.55;
+  filter: grayscale(0.7);
+}
+
+.achievement-card.unlocked {
+  opacity: 1;
+  filter: none;
+  border-color: rgba(255, 216, 77, 0.4);
+  background: rgba(255, 216, 77, 0.07);
+}
+
+.achievement-icon {
+  font-size: 22px;
+}
+
+.achievement-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.achievement-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.achievement-name {
+  font-size: 13px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.achievement-reward {
+  font-size: 11px;
+  color: #ffd84d;
+  white-space: nowrap;
+}
+
+.achievement-desc {
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.achievement-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.achievement-card.unlocked .achievement-bar-fill {
+  background: #ffd84d;
+}
+
+.achievement-bar-fill {
+  height: 100%;
+  background: var(--accent);
+}
+
+.achievement-status {
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.achievement-card.unlocked .achievement-status {
+  color: #8ce99a;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.stat-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.stat-cell-label {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.stat-cell-value {
+  font-size: 16px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}
+
+.progress-toast {
+  position: fixed;
+  left: 50%;
+  top: 64px;
+  transform: translateX(-50%);
+  padding: 12px 22px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 8px;
+  background: rgba(16, 22, 30, 0.94);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
+  font-size: 15px;
+  font-weight: 750;
+  letter-spacing: 0;
+  pointer-events: none;
+  z-index: 50;
+  animation: title-toast-in 0.28s ease;
+  max-width: 84vw;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------------- 结算页 ---------------- */
+
+.result-reward {
+  margin: 4px 0 0;
+  font-size: 17px;
+  font-weight: 800;
+  color: #ffd84d;
+}
+
+.result-record {
+  margin: 2px 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #8ce99a;
+}
+
+.result-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+/* ---------------- 车库解锁 ---------------- */
+
+.garage-card-locked {
+  opacity: 0.6;
+}
+
+.garage-card-locked .garage-card-speed {
+  color: #ffd84d;
+  font-weight: 700;
+}
+
+.garage-card-owned {
+  border-color: rgba(140, 233, 154, 0.35);
+}
+
+.garage-locked-hint {
+  font-size: 12px;
+  color: var(--text-dim);
+  padding: 4px 2px;
+}
+
 @media (max-width: 640px) {
   .menu-panel {
     min-width: 0;
@@ -1282,5 +1673,37 @@ button,
     left: 12px;
     top: 12px;
     grid-template-columns: repeat(2, auto);
+  }
+
+  .hud-coins {
+    left: auto;
+    right: 12px;
+    bottom: auto;
+    top: 198px;
+    min-width: 108px;
+    padding: 6px 10px;
+  }
+
+  .hud-coins-value {
+    font-size: 18px;
+  }
+
+  .task-hint {
+    bottom: 214px;
+    font-size: 15px;
+    padding: 10px 20px;
+  }
+
+  .achievement-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .progress-panel {
+    width: 94vw;
+  }
+
+  .progress-toast {
+    top: 12px;
+    font-size: 13px;
   }
 }

@@ -2,7 +2,9 @@ import * as THREE from 'three';
 import {
   CAMERA_CONFIG,
   COLORS,
+  DISTANCE_COIN_EVERY_KM,
   PHYSICS,
+  PROGRESS_SAVE_INTERVAL,
   QUALITY_PRESETS,
   RACE_CONFIG,
   VEHICLES,
@@ -15,7 +17,15 @@ import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { eventBus, Events } from './EventBus';
 import { gameState } from './GameState';
-import type { CameraMode, MapMode, QualityPreset, RaceLayout, RoomInfo } from './types';
+import type {
+  CameraMode,
+  Difficulty,
+  MapMode,
+  QualityPreset,
+  RaceLayout,
+  RaceResultData,
+  RoomInfo,
+} from './types';
 import { InputSystem } from '../systems/InputSystem';
 import { AudioSystem } from '../systems/AudioSystem';
 import { buildCity, type City } from '../level/CityBuilder';
@@ -34,6 +44,7 @@ import {
 import { TrafficSystem } from '../gameplay/TrafficSystem';
 import { PedestrianSystem, type PedestrianCollider } from '../gameplay/PedestrianSystem';
 import { RaceManager } from '../gameplay/RaceManager';
+import { TaskPoints, type TaskPointInstance } from '../gameplay/TaskPoints';
 import { MultiplayerClient } from '../multiplayer/MultiplayerClient';
 import { UIManager } from '../ui/UIManager';
 
@@ -41,6 +52,7 @@ interface MinimapDot {
   x: number;
   z: number;
   isPlayer: boolean;
+  kind?: 'task';
 }
 
 interface ColliderBody {
@@ -80,6 +92,10 @@ export class Game {
   private readonly audio: AudioSystem;
   private readonly traffic: TrafficSystem;
   private readonly pedestrians: PedestrianSystem;
+  private readonly taskPoints: TaskPoints;
+  private activeTaskPoint: TaskPointInstance | null = null;
+  private taskPanelOpen = false;
+  private taskReturn: { x: number; z: number; heading: number } | null = null;
   private race: RaceManager;
   private readonly aiVehicles: PlayerVehicle[] = [];
   private readonly remoteVehicles = new Map<string, PlayerVehicle>();
@@ -106,6 +122,8 @@ export class Game {
   private timeSec = 0;
   private frameCount = 0;
   private frameTime = 0;
+  private saveTimer = 0;
+  private distanceCoinAccum = 0;
   private readonly cameraPosition = new THREE.Vector3();
   private readonly cameraLook = new THREE.Vector3();
   private activeFov: number = CAMERA_CONFIG.FOV;
@@ -113,6 +131,7 @@ export class Game {
   private thumbRenderer: THREE.WebGLRenderer | null = null;
   private thumbScene: THREE.Scene | null = null;
   private thumbCamera: THREE.PerspectiveCamera | null = null;
+  private readonly thumbnailCache = new Map<string, string>();
 
   constructor(container: HTMLElement) {
     const lowPowerRender =
@@ -197,6 +216,7 @@ export class Game {
     this.showcase = this.createPlayer(gameState.player.vehicleId, gameState.player.color);
     this.traffic = new TrafficSystem(this.finiteCity, this.scene);
     this.pedestrians = new PedestrianSystem(this.finiteCity, this.scene);
+    this.taskPoints = new TaskPoints(this.scene);
     const defaultLayout = this.finiteCity.raceLayouts[0];
     this.race = new RaceManager(
       defaultLayout.checkpoints.map((p) => new THREE.Vector3(p.x, 0, p.z)),
@@ -235,6 +255,11 @@ export class Game {
     const dots: MinimapDot[] = [
       { x: this.player.x, z: this.player.z, isPlayer: true },
     ];
+    if (this.taskPoints.isActive()) {
+      for (const point of this.taskPoints.points) {
+        dots.push({ x: point.x, z: point.z, isPlayer: false, kind: 'task' });
+      }
+    }
     if (gameState.mode === 'race') {
       for (const racer of this.race.racers) {
         if (racer.vehicle === this.player) continue;
@@ -315,6 +340,10 @@ export class Game {
     this.pedestrians.setActive(false);
     this.clearAiVehicles();
     this.placeShowcase();
+    this.audio.setRaceMusic(false);
+    this.taskPoints.setActive(false);
+    this.taskReturn = null;
+    this.ui.setTaskRaceReturn(false);
   }
 
   showSettings(): void {
@@ -330,6 +359,23 @@ export class Game {
     this.pedestrians.setActive(false);
     this.clearAiVehicles();
     this.placeShowcase();
+    this.taskPoints.setActive(false);
+  }
+
+  showProgress(): void {
+    this.leaveMultiplayerIfNeeded();
+    this.setWorld('finite');
+    gameState.setMode('menu');
+    this.city.setRacePropsVisible(false);
+    this.ui.showProgress();
+    this.setShowcaseVisible(true);
+    this.setPlayerVisible(false);
+    this.finishGarageSwitch();
+    this.traffic.setActive(false);
+    this.pedestrians.setActive(false);
+    this.clearAiVehicles();
+    this.placeShowcase();
+    this.taskPoints.setActive(false);
   }
 
   showGarage(): void {
@@ -344,6 +390,7 @@ export class Game {
     this.pedestrians.setActive(false);
     this.clearAiVehicles();
     this.placeShowcase();
+    this.taskPoints.setActive(false);
   }
 
   showGarageVehicle(vehicleId: string, color: string): void {
@@ -355,6 +402,9 @@ export class Game {
   }
 
   captureGarageThumbnail(): string | null {
+    const cacheKey = `${this.showcase.spec.id}:${this.showcase.spec.color}`;
+    const cached = this.thumbnailCache.get(cacheKey);
+    if (cached) return cached;
     if (!this.thumbRenderer) {
       this.thumbRenderer = new THREE.WebGLRenderer({
         alpha: true,
@@ -414,7 +464,9 @@ export class Game {
     group.updateMatrixWorld(true);
     try {
       this.thumbRenderer.render(this.thumbScene, this.thumbCamera);
-      return this.thumbRenderer.domElement.toDataURL('image/png');
+      const url = this.thumbRenderer.domElement.toDataURL('image/png');
+      this.thumbnailCache.set(cacheKey, url);
+      return url;
     } finally {
       group.scale.setScalar(prevScale);
       this.thumbScene.remove(group);
@@ -448,6 +500,7 @@ export class Game {
     this.finishGarageSwitch();
     this.traffic.setActive(false);
     this.placeShowcase();
+    this.taskPoints.setActive(false);
   }
 
   showMultiplayer(): void {
@@ -462,6 +515,7 @@ export class Game {
     this.pedestrians.setActive(false);
     this.clearAiVehicles();
     this.placeShowcase();
+    this.taskPoints.setActive(false);
     this.multiplayerClient.connect();
   }
 
@@ -501,6 +555,8 @@ export class Game {
     this.traffic.setActive(false);
     this.pedestrians.setActive(false);
     this.clearAiVehicles();
+    this.taskPoints.setActive(false);
+    this.activeTaskPoint = null;
     const playerIndex = Math.max(
       0,
       gameState.multiplayer.players.findIndex(
@@ -514,6 +570,7 @@ export class Game {
     this.audio.init();
     this.audio.resume();
     this.audio.startBgm();
+    this.audio.setRaceMusic(false);
   }
 
   startFreeRoam(mapMode: MapMode = 'finite'): void {
@@ -529,10 +586,13 @@ export class Game {
     this.traffic.setActive(true);
     this.pedestrians.setActive(true);
     this.clearAiVehicles();
+    this.taskPoints.setActive(mapMode === 'finite');
+    this.activeTaskPoint = null;
     this.player.reset(WORLD.SPAWN_X, WORLD.SPAWN_Z, Math.PI);
     this.audio.init();
     this.audio.resume();
     this.audio.startBgm();
+    this.audio.setRaceMusic(false);
   }
 
   startRace(): void {
@@ -550,6 +610,7 @@ export class Game {
     this.traffic.setActive(false);
     this.pedestrians.setActive(false);
     this.clearAiVehicles();
+    this.taskPoints.setActive(false);
 
     const available = VEHICLES.filter((v) => v.id !== this.player.spec.id);
     const totalRacers = Math.max(
@@ -589,6 +650,7 @@ export class Game {
     this.audio.init();
     this.audio.resume();
     this.audio.startBgm();
+    this.audio.setRaceMusic(true);
   }
 
   restartRace(): void {
@@ -600,6 +662,101 @@ export class Game {
     else if (gameState.mode === 'endless') this.startFreeRoam('endless');
     else if (gameState.mode === 'multiplayer') this.startMultiplayer();
     else this.startFreeRoam('finite');
+  }
+
+  /** 竞速结算：统计与奖励并入存档，返回带奖励信息的结算数据 */
+  awardRaceResult(data: {
+    position: number;
+    totalRacers: number;
+    bestLapMs: number;
+    totalMs: number;
+    difficulty: Difficulty;
+  }): RaceResultData {
+    const result = gameState.recordRace({
+      position: data.position,
+      totalRacers: data.totalRacers,
+      difficulty: gameState.race.difficulty,
+      layoutId: gameState.race.layoutId,
+      bestLapMs: data.bestLapMs,
+    });
+    return {
+      position: data.position,
+      totalRacers: data.totalRacers,
+      bestLapMs: data.bestLapMs,
+      totalMs: data.totalMs,
+      difficulty: data.difficulty,
+      reward: result.reward,
+      isWin: result.isWin,
+      newRecord: result.newRecord,
+    };
+  }
+
+  /** 行驶中的生涯统计：里程 / 极速 / 在线时长 / 里程金币 */
+  private trackProgress(dt: number): void {
+    const speedMs = this.player.getSpeedMs();
+    const km = (speedMs * dt) / 1000;
+    gameState.addDistanceKm(km, gameState.mode === 'endless');
+    gameState.updateTopSpeed(speedMs * 3.6);
+    gameState.addPlaySeconds(dt);
+    this.distanceCoinAccum += km;
+    const coinStep = 1 / DISTANCE_COIN_EVERY_KM;
+    if (this.distanceCoinAccum >= coinStep) {
+      const gained = Math.floor(this.distanceCoinAccum / coinStep);
+      this.distanceCoinAccum -= gained * coinStep;
+      gameState.addCoins(gained);
+    }
+  }
+
+  // ---------------- 竞速任务触发点 ----------------
+
+  /** 是否处于任务点发起的竞速（结算界面显示「返回自由漫游」） */
+  isTaskRace(): boolean {
+    return this.taskReturn !== null;
+  }
+
+  openTaskPanel(point: TaskPointInstance): void {
+    if (this.taskPanelOpen) return;
+    this.taskPanelOpen = true;
+    this.activeTaskPoint = point;
+    gameState.setPaused(true);
+    this.audio.suspend();
+    this.ui.showTaskPanel(point);
+  }
+
+  closeTaskPanel(): void {
+    if (!this.taskPanelOpen) return;
+    this.taskPanelOpen = false;
+    gameState.setPaused(false);
+    this.audio.resume();
+    this.ui.hideTaskPanel();
+  }
+
+  /** 从任务点开始竞速：沿用玩家车辆，套用面板参数 */
+  startTaskRace(laps: number, opponents: number): void {
+    const point = this.activeTaskPoint;
+    if (!point) return;
+    this.taskReturn = {
+      x: this.player.x,
+      z: this.player.z,
+      heading: this.player.heading,
+    };
+    this.closeTaskPanel();
+    gameState.race.layoutId = point.layoutId;
+    gameState.race.totalLaps = laps;
+    gameState.race.totalRacers = opponents + 1;
+    this.startRace();
+    this.ui.setTaskRaceReturn(true);
+  }
+
+  /** 竞速结束返回自由漫游，回到进入前的任务点位置 */
+  returnToFreeRoam(): void {
+    const target = this.taskReturn;
+    this.taskReturn = null;
+    this.ui.setTaskRaceReturn(false);
+    this.startFreeRoam('finite');
+    if (target) {
+      this.player.reset(target.x, target.z, target.heading);
+    }
   }
 
   togglePause(): void {
@@ -615,6 +772,8 @@ export class Game {
     gameState.setPaused(!gameState.paused);
     if (gameState.paused) {
       this.audio.suspend();
+      gameState.checkAchievements();
+      gameState.save();
       this.ui.showPause();
     } else {
       this.audio.resume();
@@ -766,6 +925,25 @@ export class Game {
     } else if (gameState.mode === 'race') {
       this.updateRace(dt);
     }
+    this.taskPoints.update(dt);
+    this.tickProgressSave(dt);
+  }
+
+  /** 游玩期间周期性结算成就并落盘，避免每个物理帧写 localStorage */
+  private tickProgressSave(dt: number): void {
+    if (
+      gameState.mode !== 'freeRoam' &&
+      gameState.mode !== 'endless' &&
+      gameState.mode !== 'race' &&
+      gameState.mode !== 'multiplayer'
+    ) {
+      return;
+    }
+    this.saveTimer += dt;
+    if (this.saveTimer < PROGRESS_SAVE_INTERVAL) return;
+    this.saveTimer = 0;
+    gameState.checkAchievements();
+    gameState.save();
   }
 
   private updateFreeRoam(dt: number): void {
@@ -806,6 +984,9 @@ export class Game {
     if (gameState.mode !== 'endless') this.clampToBounds(this.player);
     this.updateChaseCamera(dt);
     this.updateSun();
+    this.trackProgress(dt);
+    this.activeTaskPoint = this.taskPoints.nearestActive(this.player.x, this.player.z);
+    this.ui.setTaskHintVisible(!!this.activeTaskPoint);
     this.syncGameState();
     this.audio.updateEngine(
       this.player.getRpmRatio(),
@@ -844,6 +1025,7 @@ export class Game {
       this.updateChaseCamera(dt);
       this.updateSun();
     }
+    this.trackProgress(dt);
     this.syncGameState();
     this.ui.updateHud();
   }
@@ -876,6 +1058,7 @@ export class Game {
     }
     this.updateChaseCamera(dt);
     this.updateSun();
+    this.trackProgress(dt);
     this.syncGameState();
     this.audio.updateEngine(
       this.player.getRpmRatio(),
@@ -927,6 +1110,13 @@ export class Game {
   }
 
   private handleDiscreteInput(): void {
+    if (this.taskPanelOpen) {
+      // 任务设置面板打开时：E / Esc 关闭面板，忽略其它操作
+      if (this.input.consume('interact') || this.input.consume('pause')) {
+        this.closeTaskPanel();
+      }
+      return;
+    }
     if (this.input.consume('pause')) this.togglePause();
     if (this.input.consume('reset')) this.resetVehicle();
     if (this.input.consume('camera')) {
@@ -937,6 +1127,15 @@ export class Game {
       this.applyInteriorVisibility();
     }
     if (this.input.consume('mute')) this.toggleMute();
+    if (this.input.consume('interact')) {
+      if (
+        gameState.mode === 'freeRoam' &&
+        this.activeTaskPoint &&
+        !gameState.paused
+      ) {
+        this.openTaskPanel(this.activeTaskPoint);
+      }
+    }
   }
 
   private updateChaseCamera(dt: number): void {
@@ -1247,8 +1446,8 @@ export class Game {
     const ibz = (impulse / mb) * nz;
     vehicle.setVelocity(va.vx - iax, va.vz - iaz);
     otherVehicle.setVelocity(vb.vx + ibx, vb.vz + ibz);
-    if (vehicle !== this.player) this.traffic.syncVehicleSpeed(vehicle);
-    if (otherVehicle !== this.player) this.traffic.syncVehicleSpeed(otherVehicle);
+    if (vehicle !== this.player) this.traffic.onVehicleHit(vehicle);
+    if (otherVehicle !== this.player) this.traffic.onVehicleHit(otherVehicle);
     const intensity = Math.min(1, -relN / 14);
     eventBus.emit(Events.VEHICLE_COLLISION, { intensity });
     this.audio.playCollision(intensity);

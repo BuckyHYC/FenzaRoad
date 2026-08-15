@@ -578,11 +578,11 @@ export function buildVehicle(
         () =>
           new THREE.MeshPhysicalMaterial({
             color,
-            roughness: 0.28,
-            metalness: 0.6,
+            roughness: 0.24,
+            metalness: 0.62,
             clearcoat: 1,
-            clearcoatRoughness: 0.18,
-            envMapIntensity: 1.25,
+            clearcoatRoughness: 0.14,
+            envMapIntensity: 1.45,
             envMap: vehicleEnvMap ?? undefined,
           }),
       )
@@ -591,9 +591,9 @@ export function buildVehicle(
         () =>
           new THREE.MeshStandardMaterial({
             color,
-            roughness: 0.34,
+            roughness: 0.32,
             metalness: 0.6,
-            envMapIntensity: 1.0,
+            envMapIntensity: 1.1,
             envMap: vehicleEnvMap ?? undefined,
           }),
       );
@@ -603,9 +603,9 @@ export function buildVehicle(
         () =>
           new THREE.MeshPhysicalMaterial({
             color: 0x0b1f2a,
-            roughness: 0.05,
-            metalness: 0.9,
-            envMapIntensity: 1.5,
+            roughness: 0.04,
+            metalness: 0.92,
+            envMapIntensity: 1.65,
             envMap: vehicleEnvMap ?? undefined,
           }),
       )
@@ -642,7 +642,7 @@ export function buildVehicle(
       new THREE.MeshStandardMaterial({
         color: 0xfff6c8,
         emissive: 0xfff0b0,
-        emissiveIntensity: 0.9,
+        emissiveIntensity: 1.4,
       }),
   );
   const taillightMat = material(
@@ -651,7 +651,7 @@ export function buildVehicle(
       new THREE.MeshStandardMaterial({
         color: 0x9c1515,
         emissive: 0xd02020,
-        emissiveIntensity: 0.7,
+        emissiveIntensity: 1.1,
       }),
   );
   const roofMat = material(
@@ -952,7 +952,7 @@ export function buildVehicle(
         new THREE.MeshStandardMaterial({
           color: 0xfffdf0,
           emissive: 0xfff6d0,
-          emissiveIntensity: 1.7,
+          emissiveIntensity: 2.6,
         }),
     );
     for (const [part, side, isFront] of [
@@ -980,7 +980,41 @@ export function buildVehicle(
       core.scale.set(0.12, 0.05, 0.02);
       core.position.set(0, 0, (isFront ? 1 : -1) * 0.035);
       part.add(core);
+      // 车灯透镜：更立体的发光投影
+      const lens = new THREE.Mesh(
+        geometry('part-light-lens', () => new THREE.CylinderGeometry(0.075, 0.085, 0.05, 12)),
+        isFront ? headlightCoreMat : taillightMat,
+      );
+      lens.name = 'Light-lens';
+      lens.rotation.x = Math.PI / 2;
+      lens.position.set(0, 0.012, (isFront ? 1 : -1) * 0.085);
+      part.add(lens);
     }
+
+    // 车顶天线
+    const antenna = new THREE.Mesh(
+      geometry('part-antenna', () => new THREE.CylinderGeometry(0.008, 0.014, 0.34, 5)),
+      darkMat,
+    );
+    antenna.name = 'Antenna';
+    antenna.position.set(0, cabinTop + 0.18, cabinZ - cabinLen * 0.38);
+    antenna.castShadow = false;
+    group.add(antenna);
+
+    // 排气管
+    const exhaustGeo = geometry(
+      'part-exhaust',
+      () => new THREE.CylinderGeometry(0.045, 0.052, 0.16, 10),
+    );
+    for (const side of [-1, 1]) {
+      const exhaust = new THREE.Mesh(exhaustGeo, darkMat);
+      exhaust.name = 'Exhaust';
+      exhaust.rotation.x = Math.PI / 2;
+      exhaust.position.set(side * (W * 0.3), wheelR - 0.02, -L / 2 + 0.03);
+      exhaust.castShadow = false;
+      group.add(exhaust);
+    }
+    bodyParts.set('Antenna', antenna);
   }
 
   const tireGeo = geometry(
@@ -1045,6 +1079,20 @@ export function buildVehicle(
           rimMat,
         ),
       );
+      // 轮毂外圈亮环 + 中心盖（与轮毂同轴：局部 Y 轴，由父级轮组统一旋转）
+      const rimRing = new THREE.Mesh(
+        geometry('wheel-rim-ring', () => new THREE.TorusGeometry(0.185, 0.024, 6, 22)),
+        rimMat,
+      );
+      rimRing.rotation.x = Math.PI / 2;
+      rimRing.position.x = 0.048;
+      wheel.add(rimRing);
+      const centerCap = new THREE.Mesh(
+        geometry('wheel-cap', () => new THREE.CylinderGeometry(0.03, 0.03, 0.035, 10)),
+        spokeMat,
+      );
+      centerCap.position.x = 0.088;
+      wheel.add(centerCap);
     }
     if (pivot) {
       pivot.add(wheel);

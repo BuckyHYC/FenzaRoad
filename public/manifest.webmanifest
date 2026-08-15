@@ -1,0 +1,19 @@
+{
+  "name": "MoronTown 城市驾驶模拟",
+  "short_name": "MoronTown",
+  "description": "3D 城市驾驶游戏：自由漫游、无尽模式、AI 竞速与多人联机，含金币、成就与每日签到。",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#0d1117",
+  "theme_color": "#0d1117",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

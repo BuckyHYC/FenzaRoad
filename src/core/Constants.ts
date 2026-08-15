@@ -1,4 +1,4 @@
-import type { Density, QualityPreset, VehicleSpec } from './types';
+import type { Density, QualityPreset, RaceLayoutId, VehicleSpec } from './types';
 
 export const WORLD = {
   GRID_SIZE: 8,
@@ -217,6 +217,66 @@ export const RACE_CONFIG = {
   } as Record<string, { speedScale: number; cornerScale: number; rubberband: number }>,
 } as const;
 
+/** 行驶奖励：每行驶 1 km 获得 2 金币 */
+export const DISTANCE_COIN_EVERY_KM = 2;
+/** 生涯统计周期性存档间隔（秒） */
+export const PROGRESS_SAVE_INTERVAL = 10;
+
+/** 自由漫游城市中的竞速任务触发点（数据驱动，对应 race/layouts 中的地图） */
+export interface TaskPointDef {
+  id: string;
+  layoutId: RaceLayoutId;
+  name: string;
+  /** 世界坐标（位于道路交叉口） */
+  x: number;
+  z: number;
+  /** 高亮圆环与触发区半径 */
+  radius: number;
+  defaultLaps: number;
+  defaultOpponents: number;
+}
+
+export const TASK_POINTS: TaskPointDef[] = [
+  {
+    id: 'task-perimeter',
+    layoutId: 'perimeter',
+    name: '城市环路',
+    x: 300,
+    z: 300,
+    radius: 9,
+    defaultLaps: 2,
+    defaultOpponents: 3,
+  },
+  {
+    id: 'task-citytour',
+    layoutId: 'cityTour',
+    name: '城市巡回',
+    x: 750,
+    z: 450,
+    radius: 9,
+    defaultLaps: 2,
+    defaultOpponents: 3,
+  },
+  {
+    id: 'task-hillloop',
+    layoutId: 'hillLoop',
+    name: '山地纵贯',
+    x: 1050,
+    z: 750,
+    radius: 9,
+    defaultLaps: 2,
+    defaultOpponents: 3,
+  },
+];
+
+export const TASK_POINT_CONFIG = {
+  MIN_LAPS: 1,
+  MAX_LAPS: 5,
+  MIN_OPPONENTS: 1,
+  MAX_OPPONENTS: 7,
+  TRIGGER_RADIUS_MARGIN: 1.5,
+} as const;
+
 export const TREE_COLLIDER_RADIUS = 0.85;
 
 export const DENSITY_VALUES = {
@@ -230,6 +290,12 @@ export const AUDIO_CONFIG = {
   ENGINE_MAX_ADD: 232,
   ENGINE_BASE_GAIN: 0.012,
   ENGINE_THROTTLE_GAIN: 0.03,
+} as const;
+
+/** 背景音乐：普通模式与竞速模式的总线增益（竞速更燃更响） */
+export const MUSIC_CONFIG = {
+  NORMAL_GAIN: 0.16,
+  RACE_GAIN: 0.2,
 } as const;
 
 export const COLORS = {

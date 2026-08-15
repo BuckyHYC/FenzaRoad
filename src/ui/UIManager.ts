@@ -1,6 +1,15 @@
-import { RACE_CONFIG, VEHICLES } from '../core/Constants';
+import { RACE_CONFIG, VEHICLES, type TaskPointDef } from '../core/Constants';
 import { eventBus, Events } from '../core/EventBus';
 import { gameState } from '../core/GameState';
+import {
+  ACHIEVEMENTS,
+  type AchievementDef,
+  achievementProgress,
+  challengeProgress,
+  checkInReward,
+  dailyChallengesFor,
+  vehiclePrice,
+} from '../core/Progress';
 import { TITLES, type TitleDefinition } from '../core/Titles';
 import type {
   ControlMode,
@@ -9,6 +18,7 @@ import type {
   QualityPreset,
   RaceLayoutId,
   RacePhase,
+  RaceResultData,
   VehicleSpec,
 } from '../core/types';
 import type { InputSystem } from '../systems/InputSystem';
@@ -42,11 +52,21 @@ function formatTime(ms: number): string {
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(millis).padStart(3, '0')}`;
 }
 
+function formatDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '0 分钟';
+  const totalMinutes = Math.floor(seconds / 60);
+  if (totalMinutes < 60) return `${totalMinutes} 分钟`;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${hours} 小时 ${minutes} 分`;
+}
+
 interface RaceFinishedData {
   position: number;
   totalRacers: number;
   bestLapMs: number;
   totalMs: number;
+  difficulty: Difficulty;
 }
 
 export class UIManager {
@@ -55,10 +75,13 @@ export class UIManager {
   private readonly menuOverlay: HTMLDivElement;
   private readonly raceMenuOverlay: HTMLDivElement;
   private readonly settingsOverlay: HTMLDivElement;
+  private readonly progressOverlay: HTMLDivElement;
   private readonly garageOverlay: HTMLDivElement;
   private readonly multiplayerOverlay: HTMLDivElement;
   private readonly lobbyOverlay: HTMLDivElement;
   private readonly hudOverlay: HTMLDivElement;
+  private readonly taskHint: HTMLDivElement;
+  private readonly taskRaceOverlay: HTMLDivElement;
   private readonly countdownOverlay: HTMLDivElement;
   private readonly pauseOverlay: HTMLDivElement;
   private readonly resultOverlay: HTMLDivElement;
@@ -96,8 +119,14 @@ export class UIManager {
   private readonly killValue: HTMLSpanElement;
   private readonly killNext: HTMLSpanElement;
   private readonly titleToast: HTMLDivElement;
+  private readonly progressToast: HTMLDivElement;
+  private readonly hudCoins: HTMLSpanElement;
   private lastShownKills = gameState.pedestrianKills;
   private titleToastTimer: number | null = null;
+  private progressToastTimer: number | null = null;
+  private minimapFrame = 0;
+  private taskLaps = 2;
+  private taskOpponents = 3;
 
   constructor(game: Game, input: InputSystem, container: HTMLElement) {
     this.game = game;
@@ -107,25 +136,36 @@ export class UIManager {
     this.menuOverlay = this.buildMainMenu();
     this.raceMenuOverlay = this.buildRaceMenu();
     this.settingsOverlay = this.buildSettings();
+    this.progressOverlay = this.buildProgress();
     this.garageOverlay = this.buildGarage();
     this.multiplayerOverlay = this.buildMultiplayer();
     this.lobbyOverlay = this.buildLobby();
     this.hudOverlay = this.buildHud();
+    this.taskHint = el('div', 'task-hint hidden') as HTMLDivElement;
+    this.taskHint.id = 'task-hint';
+    this.taskHint.textContent = '按 E 开始竞速';
+    this.taskRaceOverlay = this.buildTaskRacePanel();
     this.countdownOverlay = el('div', 'overlay countdown-overlay hidden') as HTMLDivElement;
     this.pauseOverlay = this.buildPause();
     this.resultOverlay = this.buildResult();
+    this.progressToast = el('div', 'progress-toast hidden') as HTMLDivElement;
+    this.progressToast.id = 'progress-toast';
 
     this.root.append(
       this.menuOverlay,
       this.raceMenuOverlay,
       this.settingsOverlay,
+      this.progressOverlay,
       this.garageOverlay,
       this.multiplayerOverlay,
       this.lobbyOverlay,
       this.hudOverlay,
+      this.taskHint,
+      this.taskRaceOverlay,
       this.countdownOverlay,
       this.pauseOverlay,
       this.resultOverlay,
+      this.progressToast,
     );
 
     const speedElement = this.hudOverlay.querySelector('#hud-speed');
@@ -141,6 +181,7 @@ export class UIManager {
     const bestLapElement = this.hudOverlay.querySelector('#hud-bestlap');
     const raceInfoElement = this.hudOverlay.querySelector('#hud-race');
     const minimapElement = this.hudOverlay.querySelector('#minimap');
+    const hudCoinsElement = this.hudOverlay.querySelector('#hud-coins');
     if (
       !(speedElement instanceof HTMLSpanElement) ||
       !(tachElement instanceof HTMLSpanElement) ||
@@ -154,7 +195,8 @@ export class UIManager {
       !(timeElement instanceof HTMLSpanElement) ||
       !(bestLapElement instanceof HTMLSpanElement) ||
       !(raceInfoElement instanceof HTMLDivElement) ||
-      !(minimapElement instanceof HTMLCanvasElement)
+      !(minimapElement instanceof HTMLCanvasElement) ||
+      !(hudCoinsElement instanceof HTMLSpanElement)
     ) {
       throw new Error('HUD elements missing');
     }
@@ -171,6 +213,8 @@ export class UIManager {
     this.bestLapValue = bestLapElement;
     this.raceInfo = raceInfoElement;
     this.minimap = new Minimap(minimapElement);
+    this.hudCoins = hudCoinsElement;
+    this.hudCoins.textContent = String(Math.floor(gameState.coins));
 
     const garageName = this.garageOverlay.querySelector('#garage-name');
     const garageSwatches = this.garageOverlay.querySelector('#garage-swatches');
@@ -237,6 +281,14 @@ export class UIManager {
     this.hideAll();
     this.menuOverlay.classList.remove('hidden');
     this.refreshRaceMenuOptions();
+    this.refreshMenuWallet();
+    this.touchControls.hide();
+  }
+
+  showProgress(): void {
+    this.hideAll();
+    this.progressOverlay.classList.remove('hidden');
+    this.refreshProgressScreen();
     this.touchControls.hide();
   }
 
@@ -396,12 +448,21 @@ export class UIManager {
     }, value > 0 ? 950 : 850);
   }
 
-  showResult(data: RaceFinishedData): void {
+  showResult(data: RaceResultData): void {
     this.hideAll();
     this.resultOverlay.classList.remove('hidden');
     const place = data.position <= 0 ? '未完赛' : `第 ${data.position} 名`;
     this.resultTitle.textContent = place;
     this.resultDetail.textContent = `总用时 ${formatTime(data.totalMs)} · 最佳圈速 ${formatTime(data.bestLapMs)}`;
+    const reward = this.resultOverlay.querySelector('#result-reward');
+    if (reward instanceof HTMLElement) {
+      reward.textContent = `奖励 🪙 ${data.reward}`;
+      reward.classList.toggle('hidden', data.reward <= 0);
+    }
+    const record = this.resultOverlay.querySelector('#result-record');
+    if (record instanceof HTMLElement) {
+      record.classList.toggle('hidden', !data.newRecord);
+    }
     this.touchControls.hide();
   }
 
@@ -412,6 +473,7 @@ export class UIManager {
     this.tachBar.style.width = `${Math.round(gameState.player.rpmRatio * 100)}%`;
     this.gearValue.textContent = gameState.player.gear === 0 ? 'R' : `D${gameState.player.gear}`;
     this.killValue.textContent = String(gameState.pedestrianKills);
+    this.hudCoins.textContent = String(Math.floor(gameState.coins));
     const nextTitle = TITLES.find((title) => title.kills > gameState.pedestrianKills);
     this.killNext.textContent = nextTitle
       ? `下一称号：${nextTitle.name}（${nextTitle.kills - gameState.pedestrianKills}）`
@@ -431,13 +493,27 @@ export class UIManager {
     }
 
     const dots = this.game.getMinimapDots();
-    this.minimap.render(
-      gameState.player.x,
-      gameState.player.z,
-      gameState.player.heading,
-      dots,
-      this.game.getRaceRoute(),
-    );
+    this.minimapFrame += 1;
+    if (this.minimapFrame % 3 === 1) {
+      this.minimap.render(
+        gameState.player.x,
+        gameState.player.z,
+        gameState.player.heading,
+        dots,
+        this.game.getRaceRoute(),
+      );
+    }
+  }
+
+  private showToast(text: string, color: string): void {
+    this.progressToast.textContent = text;
+    this.progressToast.style.color = color;
+    this.progressToast.style.borderColor = color;
+    this.progressToast.classList.remove('hidden');
+    if (this.progressToastTimer !== null) window.clearTimeout(this.progressToastTimer);
+    this.progressToastTimer = window.setTimeout(() => {
+      this.progressToast.classList.add('hidden');
+    }, 3000);
   }
 
   setGaragePreview(vehicleId: string, color: string, direction?: 1 | -1): void {
@@ -556,11 +632,23 @@ export class UIManager {
     panel.appendChild(button('menu-btn menu-btn-lg', '多人游戏', () => this.game.showMultiplayer()));
     panel.appendChild(button('menu-btn menu-btn-lg', '竞速模式', () => this.game.showRaceMenu()));
     panel.appendChild(button('menu-btn menu-btn-lg', '车库', () => this.game.showGarage()));
+    panel.appendChild(button('menu-btn menu-btn-lg', '生涯成就', () => this.game.showProgress()));
     panel.appendChild(button('menu-btn menu-btn-lg', '设置', () => this.game.showSettings()));
     const footer = el('div', 'menu-footer') as HTMLDivElement;
     const mute = button('menu-btn menu-btn-small', '', () => this.game.toggleMute());
     mute.id = 'menu-mute';
     footer.appendChild(mute);
+    const coins = el('span', 'menu-chip wallet-chip') as HTMLSpanElement;
+    coins.id = 'menu-coins';
+    coins.textContent = `🪙 ${Math.floor(gameState.coins)}`;
+    coins.title = '金币：赢取竞速、完成每日任务与签到获得';
+    footer.appendChild(coins);
+    const checkIn = button('menu-btn menu-btn-small checkin-btn', '签到', () => {
+      this.game.showProgress();
+    });
+    checkIn.id = 'menu-checkin';
+    checkIn.title = '每日签到领取金币';
+    footer.appendChild(checkIn);
     footer.appendChild(el('span', 'menu-chip', `${VEHICLES.length} 台座驾`));
     const raceChip = el('span', 'menu-chip', '');
     raceChip.id = 'menu-race-chip';
@@ -569,6 +657,20 @@ export class UIManager {
     panel.appendChild(footer);
     overlay.appendChild(panel);
     return overlay;
+  }
+
+  /** 主菜单钱包与签到入口状态 */
+  refreshMenuWallet(): void {
+    const coins = this.menuOverlay.querySelector('#menu-coins');
+    if (coins instanceof HTMLElement) {
+      coins.textContent = `🪙 ${Math.floor(gameState.coins)}`;
+    }
+    const checkIn = this.menuOverlay.querySelector('#menu-checkin');
+    if (checkIn instanceof HTMLElement) {
+      const canClaim = gameState.canCheckIn();
+      checkIn.textContent = canClaim ? '签到' : '已签到';
+      checkIn.classList.toggle('checkin-ready', canClaim);
+    }
   }
 
   refreshMuteButton(): void {
@@ -750,6 +852,281 @@ export class UIManager {
     return overlay;
   }
 
+  private buildProgress(): HTMLDivElement {
+    const overlay = el('div', 'overlay progress-overlay hidden') as HTMLDivElement;
+    const panel = el('div', 'menu-panel progress-panel') as HTMLDivElement;
+    panel.appendChild(el('h1', 'menu-heading', '生涯成就'));
+    panel.appendChild(el('p', 'menu-description', '每日签到、今日任务、成就与生涯统计'));
+
+    const wallet = el('div', 'progress-wallet') as HTMLDivElement;
+    const walletValue = el('span', 'progress-wallet-value') as HTMLSpanElement;
+    walletValue.id = 'progress-coins';
+    wallet.appendChild(walletValue);
+    panel.appendChild(wallet);
+
+    const checkInSection = el('div', 'progress-section') as HTMLDivElement;
+    checkInSection.appendChild(el('h2', 'progress-section-title', '每日签到'));
+    const checkInRow = el('div', 'progress-row') as HTMLDivElement;
+    const streakText = el('span', 'progress-text') as HTMLSpanElement;
+    streakText.id = 'progress-streak';
+    const checkInBtn = button('menu-btn menu-btn-primary', '签到', () => this.doCheckIn());
+    checkInBtn.id = 'progress-checkin';
+    checkInRow.append(streakText, checkInBtn);
+    checkInSection.appendChild(checkInRow);
+    panel.appendChild(checkInSection);
+
+    const dailyTitle = el('h2', 'progress-section-title', '今日任务');
+    dailyTitle.id = 'daily-title';
+    panel.appendChild(dailyTitle);
+    const dailyList = el('div', 'daily-list') as HTMLDivElement;
+    dailyList.id = 'daily-list';
+    panel.appendChild(dailyList);
+
+    panel.appendChild(el('h2', 'progress-section-title', '成就'));
+    const achievementGrid = el('div', 'achievement-grid') as HTMLDivElement;
+    achievementGrid.id = 'achievement-grid';
+    panel.appendChild(achievementGrid);
+
+    panel.appendChild(el('h2', 'progress-section-title', '生涯统计'));
+    const statsGrid = el('div', 'stats-grid') as HTMLDivElement;
+    statsGrid.id = 'progress-stats';
+    panel.appendChild(statsGrid);
+
+    panel.appendChild(button('menu-btn menu-btn-secondary', '返回主菜单', () => this.game.showMenu()));
+    overlay.appendChild(panel);
+    return overlay;
+  }
+
+  private doCheckIn(): void {
+    const result = gameState.checkIn();
+    if (!result.ok) return;
+    this.showToast(`签到成功！连续 ${result.streak} 天，+🪙${result.reward}`, '#ffb545');
+    this.refreshProgressScreen();
+    this.refreshMenuWallet();
+  }
+
+  private claimDaily(defId: string): void {
+    if (gameState.claimDailyChallenge(defId)) {
+      this.showToast('每日任务完成，+🪙 奖励已到账', '#8ce99a');
+      this.refreshProgressScreen();
+      this.refreshMenuWallet();
+    }
+  }
+
+  private refreshProgressScreen(): void {
+    gameState.ensureDailyFresh();
+    const context = gameState.getProgressContext();
+    const wallet = this.progressOverlay.querySelector('#progress-coins');
+    if (wallet instanceof HTMLElement) {
+      wallet.textContent = `🪙 ${Math.floor(gameState.coins)}`;
+    }
+    const streak = this.progressOverlay.querySelector('#progress-streak');
+    if (streak instanceof HTMLElement) {
+      streak.textContent = `当前连续签到 ${gameState.daily.checkInStreak} 天`;
+    }
+    const checkInBtn = this.progressOverlay.querySelector('#progress-checkin');
+    if (checkInBtn instanceof HTMLButtonElement) {
+      const can = gameState.canCheckIn();
+      checkInBtn.disabled = !can;
+      checkInBtn.textContent = can
+        ? `签到领 🪙${checkInReward(gameState.daily.checkInStreak + 1)}`
+        : '今日已签到';
+    }
+    const dailyTitle = this.progressOverlay.querySelector('#daily-title');
+    if (dailyTitle instanceof HTMLElement) {
+      const doneCount = gameState.daily.done.length;
+      dailyTitle.textContent = `今日任务（${doneCount}/3）`;
+    }
+
+    // 今日任务
+    const dailyList = this.progressOverlay.querySelector('#daily-list');
+    if (dailyList instanceof HTMLDivElement) {
+      dailyList.replaceChildren();
+      const defs = dailyChallengesFor();
+      for (const def of defs) {
+        const progress = Math.min(challengeProgress(def, context), def.target);
+        const done = gameState.daily.done.includes(def.id);
+        const claimable = !done && progress >= def.target;
+        const row = el('div', 'daily-item') as HTMLDivElement;
+        row.classList.toggle('done', done);
+        const main = el('div', 'daily-item-main') as HTMLDivElement;
+        const head = el('div', 'daily-item-head') as HTMLDivElement;
+        head.appendChild(el('span', 'daily-item-name', def.name));
+        head.appendChild(
+          el('span', 'daily-item-reward', `🪙 ${def.reward}`),
+        );
+        main.appendChild(head);
+        main.appendChild(el('span', 'daily-item-desc', def.description));
+        const barWrap = el('div', 'daily-bar') as HTMLDivElement;
+        const bar = el('div', 'daily-bar-fill') as HTMLDivElement;
+        bar.style.width = `${Math.min(100, Math.round((progress / def.target) * 100))}%`;
+        barWrap.appendChild(bar);
+        main.appendChild(barWrap);
+        const counter = el('span', 'daily-item-progress', `${progress}/${def.target} ${def.unit}`);
+        row.append(main, counter);
+        if (done) {
+          const tag = el('span', 'daily-item-tag', '已领取');
+          row.appendChild(tag);
+        } else if (claimable) {
+          const claimBtn = button('menu-btn menu-btn-small menu-btn-primary', '领取', () =>
+            this.claimDaily(def.id),
+          );
+          row.appendChild(claimBtn);
+        }
+        dailyList.appendChild(row);
+      }
+    }
+
+    // 成就
+    const grid = this.progressOverlay.querySelector('#achievement-grid');
+    if (grid instanceof HTMLDivElement) {
+      grid.replaceChildren();
+      for (const achievement of ACHIEVEMENTS) {
+        const unlocked = gameState.unlockedAchievements.includes(achievement.id);
+        const progress = Math.min(achievementProgress(achievement, context), achievement.target);
+        const card = el('div', 'achievement-card') as HTMLDivElement;
+        card.classList.toggle('unlocked', unlocked);
+        card.title = achievement.description;
+        const icon = el('span', 'achievement-icon', achievement.icon) as HTMLSpanElement;
+        const body = el('div', 'achievement-body') as HTMLDivElement;
+        const head = el('div', 'achievement-head') as HTMLDivElement;
+        head.appendChild(el('span', 'achievement-name', achievement.name));
+        head.appendChild(el('span', 'achievement-reward', `🪙 ${achievement.reward}`));
+        body.appendChild(head);
+        body.appendChild(el('span', 'achievement-desc', achievement.description));
+        const barWrap = el('div', 'achievement-bar') as HTMLDivElement;
+        const bar = el('div', 'achievement-bar-fill') as HTMLDivElement;
+        bar.style.width = `${Math.min(100, Math.round((progress / achievement.target) * 100))}%`;
+        barWrap.appendChild(bar);
+        body.appendChild(barWrap);
+        card.append(icon, body);
+        const status = el('span', 'achievement-status', unlocked ? '已解锁' : `${progress}/${achievement.target}`);
+        card.appendChild(status);
+        grid.appendChild(card);
+      }
+    }
+
+    // 生涯统计
+    const stats = this.progressOverlay.querySelector('#progress-stats');
+    if (stats instanceof HTMLDivElement) {
+      stats.replaceChildren();
+      const rows: [string, string][] = [
+        ['累计里程', `${context.stats.distanceKm.toFixed(1)} km`],
+        ['无尽里程', `${context.stats.endlessKm.toFixed(1)} km`],
+        ['竞速场次', `${context.stats.races} 场`],
+        ['夺冠次数', `${context.stats.raceWins} 次`],
+        ['极速纪录', `${Math.round(context.stats.topSpeedKmh)} km/h`],
+        ['驾驶时长', formatDuration(context.stats.playSeconds)],
+        ['累计赚取', `🪙 ${Math.floor(context.stats.coinsEarned)}`],
+        ['行人击杀', `${context.pedestrianKills} 人`],
+      ];
+      for (const [label, value] of rows) {
+        const item = el('div', 'stat-cell') as HTMLDivElement;
+        item.appendChild(el('span', 'stat-cell-label', label));
+        item.appendChild(el('span', 'stat-cell-value', value));
+        stats.appendChild(item);
+      }
+    }
+  }
+
+  // ---------------- 竞速任务触发点 ----------------
+
+  setTaskHintVisible(visible: boolean): void {
+    this.taskHint.classList.toggle('hidden', !visible);
+  }
+
+  showTaskPanel(def: TaskPointDef): void {
+    this.taskLaps = def.defaultLaps;
+    this.taskOpponents = def.defaultOpponents;
+    const title = this.taskRaceOverlay.querySelector('#task-race-title');
+    if (title instanceof HTMLElement) title.textContent = def.name;
+    this.hideAll();
+    this.taskRaceOverlay.classList.remove('hidden');
+    this.refreshTaskSelectors();
+    this.touchControls.hide();
+  }
+
+  hideTaskPanel(): void {
+    this.taskRaceOverlay.classList.add('hidden');
+    this.showFreeRoamHud();
+  }
+
+  setTaskRaceReturn(visible: boolean): void {
+    const button = this.resultOverlay.querySelector('#result-return-free');
+    if (button instanceof HTMLElement) {
+      button.classList.toggle('hidden', !visible);
+    }
+  }
+
+  private setTaskLaps(laps: number): void {
+    this.taskLaps = Math.max(1, Math.min(5, Math.round(laps)));
+    this.refreshTaskSelectors();
+  }
+
+  private setTaskOpponents(count: number): void {
+    this.taskOpponents = Math.max(1, Math.min(7, Math.round(count)));
+    this.refreshTaskSelectors();
+  }
+
+  private refreshTaskSelectors(): void {
+    for (const node of this.taskRaceOverlay.querySelectorAll('[data-task-laps]')) {
+      node.classList.toggle(
+        'active',
+        node instanceof HTMLElement && Number(node.dataset.taskLaps) === this.taskLaps,
+      );
+    }
+    for (const node of this.taskRaceOverlay.querySelectorAll('[data-task-opponents]')) {
+      node.classList.toggle(
+        'active',
+        node instanceof HTMLElement &&
+          Number(node.dataset.taskOpponents) === this.taskOpponents,
+      );
+    }
+  }
+
+  private buildTaskRacePanel(): HTMLDivElement {
+    const overlay = el('div', 'overlay task-race-overlay hidden') as HTMLDivElement;
+    const panel = el('div', 'menu-panel task-race-panel') as HTMLDivElement;
+    const title = el('h1', 'menu-heading') as HTMLHeadingElement;
+    title.id = 'task-race-title';
+    title.textContent = '竞速';
+    panel.appendChild(title);
+    panel.appendChild(el('p', 'menu-description', '选择圈数与对手数量后开始比赛'));
+
+    const lapsRow = el('div', 'settings-row settings-row-column') as HTMLDivElement;
+    lapsRow.appendChild(el('span', 'settings-label', '比赛圈数'));
+    const lapsSeg = el('div', 'difficulty-row') as HTMLDivElement;
+    for (let laps = 1; laps <= 5; laps += 1) {
+      const node = button('seg-btn', `${laps} 圈`, () => this.setTaskLaps(laps));
+      node.dataset.taskLaps = String(laps);
+      lapsSeg.appendChild(node);
+    }
+    lapsRow.appendChild(lapsSeg);
+    panel.appendChild(lapsRow);
+
+    const oppRow = el('div', 'settings-row settings-row-column') as HTMLDivElement;
+    oppRow.appendChild(el('span', 'settings-label', '对手数量'));
+    const oppSeg = el('div', 'difficulty-row') as HTMLDivElement;
+    for (let count = 1; count <= 7; count += 1) {
+      const node = button('seg-btn', `${count} 人`, () => this.setTaskOpponents(count));
+      node.dataset.taskOpponents = String(count);
+      oppSeg.appendChild(node);
+    }
+    oppRow.appendChild(oppSeg);
+    panel.appendChild(oppRow);
+
+    panel.appendChild(
+      button('menu-btn menu-btn-primary', '开始比赛', () =>
+        this.game.startTaskRace(this.taskLaps, this.taskOpponents),
+      ),
+    );
+    panel.appendChild(
+      button('menu-btn menu-btn-secondary', '取消', () => this.game.closeTaskPanel()),
+    );
+    overlay.appendChild(panel);
+    return overlay;
+  }
+
   private buildRaceMenu(): HTMLDivElement {
     const overlay = el('div', 'overlay menu-overlay') as HTMLDivElement;
     const panel = el('div', 'menu-panel') as HTMLDivElement;
@@ -878,11 +1255,31 @@ export class UIManager {
     swatches.id = 'garage-swatches';
     mainCol.appendChild(swatches);
     detail.append(stage, mainCol, specCol);
-    detail.appendChild(button('menu-btn menu-btn-primary', '使用此车辆', () => this.confirmGarageSelection()));
+    const useBtn = button('menu-btn menu-btn-primary', '使用此车辆', () => this.confirmGarageSelection());
+    useBtn.id = 'garage-use-btn';
+    detail.appendChild(useBtn);
+    const buyBtn = button('menu-btn menu-btn-primary', '购买并装备', () => this.buyGarageVehicle());
+    buyBtn.id = 'garage-buy-btn';
+    buyBtn.classList.add('hidden');
+    detail.appendChild(buyBtn);
     detail.appendChild(button('menu-btn menu-btn-secondary', '返回', () => this.game.showMenu()));
     panel.appendChild(detail);
     overlay.appendChild(panel);
     return overlay;
+  }
+
+  private buyGarageVehicle(): void {
+    const spec = VEHICLES.find((v) => v.id === this.selectedGarageVehicleId);
+    if (!spec || gameState.isVehicleOwned(spec.id)) return;
+    const price = vehiclePrice(spec.id);
+    if (gameState.coins < price) {
+      this.showToast('金币不足，完成竞速或每日任务赚取金币', '#ff6b6b');
+      return;
+    }
+    if (gameState.buyVehicle(spec.id)) {
+      this.showToast(`已购买并装备 ${spec.name}`, '#8ce99a');
+      this.game.selectGarageVehicle(this.selectedGarageVehicleId, this.selectedGarageColor);
+    }
   }
 
   private buildGarageCards(): void {
@@ -893,7 +1290,11 @@ export class UIManager {
         this.setGaragePreview(spec.id, spec.color);
       });
       card.appendChild(el('span', 'garage-card-name', spec.name));
-      card.appendChild(el('span', 'garage-card-speed', `${Math.round(spec.topSpeedMs * 3.6)} km/h`));
+      const price = vehiclePrice(spec.id);
+      card.appendChild(
+        el('span', 'garage-card-speed', price > 0 ? `🔒 🪙${price}` : `${Math.round(spec.topSpeedMs * 3.6)} km/h`),
+      );
+      if (price > 0) card.classList.add('garage-card-locked');
       card.dataset.vehicleId = spec.id;
       list.appendChild(card);
       this.garageCards.set(spec.id, card);
@@ -944,6 +1345,15 @@ export class UIManager {
     killNext.id = 'hud-next-title';
     killCounter.appendChild(killNext);
     hud.appendChild(killCounter);
+
+    const coinHud = el('div', 'hud-coins') as HTMLDivElement;
+    coinHud.title = '金币';
+    coinHud.appendChild(el('span', 'kill-label', '金币'));
+    const hudCoinsValue = el('span', 'hud-coins-value') as HTMLSpanElement;
+    hudCoinsValue.id = 'hud-coins';
+    hudCoinsValue.textContent = '0';
+    coinHud.appendChild(hudCoinsValue);
+    hud.appendChild(coinHud);
 
     const titleToast = el('div', 'title-toast hidden') as HTMLDivElement;
     titleToast.id = 'hud-title-toast';
@@ -1128,15 +1538,55 @@ export class UIManager {
     detail.id = 'result-detail';
     panel.appendChild(title);
     panel.appendChild(detail);
-    panel.appendChild(button('menu-btn menu-btn-primary', '再来一局', () => this.game.restartRace()));
-    panel.appendChild(button('menu-btn menu-btn-secondary', '返回主菜单', () => this.game.showMenu()));
+    const reward = el('p', 'result-reward') as HTMLParagraphElement;
+    reward.id = 'result-reward';
+    panel.appendChild(reward);
+    const record = el('p', 'result-record') as HTMLParagraphElement;
+    record.id = 'result-record';
+    record.textContent = '🏅 刷新赛道纪录！';
+    record.classList.add('hidden');
+    panel.appendChild(record);
+    const actions = el('div', 'result-actions') as HTMLDivElement;
+    actions.appendChild(button('menu-btn menu-btn-primary', '再来一局', () => this.game.restartRace()));
+    const returnFree = button('menu-btn', '返回自由漫游', () => this.game.returnToFreeRoam());
+    returnFree.id = 'result-return-free';
+    returnFree.classList.add('hidden');
+    actions.appendChild(returnFree);
+    actions.appendChild(
+      button('menu-btn menu-btn-small', '分享成绩', () => this.shareResult()),
+    );
+    actions.appendChild(button('menu-btn menu-btn-secondary', '返回主菜单', () => this.game.showMenu()));
+    panel.appendChild(actions);
     overlay.appendChild(panel);
     return overlay;
   }
 
+  private shareResult(): void {
+    const positionText = gameState.player.position > 0
+      ? `第 ${gameState.player.position} 名`
+      : '未完赛';
+    const text =
+      `我在 MoronTown 竞速中拿下${positionText}！` +
+      `总用时 ${formatTime(gameState.player.raceTimeMs)}` +
+      (gameState.race.bestLapMs > 0 ? `，最佳圈速 ${formatTime(gameState.race.bestLapMs)}` : '') +
+      '。快来挑战我的纪录！';
+    const share = navigator as Navigator & { share?: (data: { title: string; text: string }) => Promise<void> };
+    if (typeof share.share === 'function') {
+      share.share({ title: 'MoronTown', text }).catch(() => undefined);
+    } else if (navigator.clipboard) {
+      navigator.clipboard.writeText(text).then(() => {
+        this.showToast('成绩已复制到剪贴板', '#3fb0ff');
+      }).catch(() => undefined);
+    } else {
+      this.showToast('分享成绩：' + text, '#3fb0ff');
+    }
+  }
+
   private refreshGaragePreview(): void {
     const spec = VEHICLES.find((v) => v.id === this.selectedGarageVehicleId) ?? VEHICLES[0];
-    this.garageName.textContent = spec.name;
+    const owned = gameState.isVehicleOwned(spec.id);
+    const price = vehiclePrice(spec.id);
+    this.garageName.textContent = owned ? spec.name : `${spec.name}（未解锁）`;
     const stats: Record<string, number> = {
       speed: spec.topSpeedMs,
       accel: spec.accelMs2,
@@ -1149,17 +1599,38 @@ export class UIManager {
     }
     this.drawTorqueCurve(spec);
     this.buildGearRatioBars(spec);
+
+    const useBtn = this.garageOverlay.querySelector('#garage-use-btn');
+    const buyBtn = this.garageOverlay.querySelector('#garage-buy-btn');
+    if (useBtn instanceof HTMLButtonElement) {
+      useBtn.classList.toggle('hidden', !owned);
+    }
+    if (buyBtn instanceof HTMLButtonElement) {
+      buyBtn.classList.toggle('hidden', owned);
+      if (!owned) {
+        buyBtn.textContent = `购买并装备 · 🪙${price}`;
+        buyBtn.disabled = gameState.coins < price;
+      }
+    }
+
     this.garageSwatches.replaceChildren();
-    for (const color of spec.colorOptions) {
-      const swatch = button('color-swatch', '', () => {
-        this.setGaragePreview(spec.id, color);
-      });
-      swatch.style.background = color;
-      swatch.classList.toggle('active', color === this.selectedGarageColor);
-      this.garageSwatches.appendChild(swatch);
+    if (owned) {
+      for (const color of spec.colorOptions) {
+        const swatch = button('color-swatch', '', () => {
+          this.setGaragePreview(spec.id, color);
+        });
+        swatch.style.background = color;
+        swatch.classList.toggle('active', color === this.selectedGarageColor);
+        this.garageSwatches.appendChild(swatch);
+      }
+    } else {
+      this.garageSwatches.appendChild(
+        el('span', 'garage-locked-hint', `🔒 需 🪙${price} 解锁，解锁后可自定义颜色`),
+      );
     }
     for (const [id, card] of this.garageCards) {
       card.classList.toggle('active', id === this.selectedGarageVehicleId);
+      card.classList.toggle('garage-card-owned', gameState.isVehicleOwned(id));
     }
     const thumbnailUrl = this.game.captureGarageThumbnail();
     if (thumbnailUrl) this.garageThumb.src = thumbnailUrl;
@@ -1282,7 +1753,16 @@ export class UIManager {
       }
     });
     eventBus.on(Events.RACE_FINISHED, (data) => {
-      this.showResult(data as RaceFinishedData);
+      const raw = data as RaceFinishedData;
+      const enriched = this.game.awardRaceResult({
+        position: raw.position,
+        totalRacers: raw.totalRacers,
+        bestLapMs: raw.bestLapMs,
+        totalMs: raw.totalMs,
+        difficulty: raw.difficulty,
+      });
+      this.showResult(enriched);
+      this.refreshMenuWallet();
     });
     eventBus.on(Events.VEHICLE_COLLISION, () => {
       this.speedValue.classList.add('collision-flash');
@@ -1291,6 +1771,26 @@ export class UIManager {
         this.speedValue.classList.remove('collision-flash');
       }, 220);
     });
+    eventBus.on(Events.COINS_CHANGED, () => {
+      this.hudCoins.textContent = String(Math.floor(gameState.coins));
+      this.refreshMenuWallet();
+      if (gameState.mode === 'menu' && !this.progressOverlay.classList.contains('hidden')) {
+        this.refreshProgressScreen();
+      }
+    });
+    eventBus.on(Events.ACHIEVEMENT_UNLOCKED, (data) => {
+      const achievement = (data as { achievement: AchievementDef } | undefined)?.achievement;
+      if (achievement) {
+        this.showToast(`成就解锁：${achievement.name} +🪙${achievement.reward}`, '#ffd84d');
+        this.hudCoins.textContent = String(Math.floor(gameState.coins));
+        this.refreshMenuWallet();
+      }
+    });
+    eventBus.on(Events.PROGRESS_CHANGED, () => {
+      if (gameState.mode === 'menu' && !this.progressOverlay.classList.contains('hidden')) {
+        this.refreshProgressScreen();
+      }
+    });
   }
 
   private hideAll(): void {
@@ -1298,10 +1798,13 @@ export class UIManager {
       this.menuOverlay,
       this.raceMenuOverlay,
       this.settingsOverlay,
+      this.progressOverlay,
       this.garageOverlay,
       this.multiplayerOverlay,
       this.lobbyOverlay,
       this.hudOverlay,
+      this.taskHint,
+      this.taskRaceOverlay,
       this.countdownOverlay,
       this.pauseOverlay,
       this.resultOverlay,

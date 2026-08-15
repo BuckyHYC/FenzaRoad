@@ -1,10 +1,11 @@
-export type InputAction = 'pause' | 'reset' | 'camera' | 'mute' | 'confirm';
+export type InputAction = 'pause' | 'reset' | 'camera' | 'mute' | 'confirm' | 'interact';
 
 const KEY_ACTIONS: Record<string, InputAction> = {
   Escape: 'pause',
   KeyR: 'reset',
   KeyC: 'camera',
   KeyM: 'mute',
+  KeyE: 'interact',
   Enter: 'confirm',
 };
 

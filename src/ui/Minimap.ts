@@ -4,6 +4,8 @@ interface MinimapDot {
   x: number;
   z: number;
   isPlayer: boolean;
+  /** 标记类型：task = 竞速任务点（蓝色高亮） */
+  kind?: 'task';
 }
 
 interface MinimapRoutePoint {
@@ -103,6 +105,25 @@ export class Minimap {
     }
 
     for (const dot of dots) {
+      if (dot.kind === 'task') {
+        // 竞速任务点：蓝色高亮（外圈 + 中心点，带呼吸描边）
+        const cx = this.toCanvasX(dot.x);
+        const cz = this.toCanvasZ(dot.z);
+        ctx.save();
+        ctx.strokeStyle = '#3fb0ff';
+        ctx.fillStyle = 'rgba(63, 176, 255, 0.28)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(cx, cz, 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(cx, cz, 2.2, 0, Math.PI * 2);
+        ctx.fillStyle = '#8fd4ff';
+        ctx.fill();
+        ctx.restore();
+        continue;
+      }
       ctx.fillStyle = dot.isPlayer ? '#ff4d4d' : '#ffd84d';
       ctx.beginPath();
       ctx.arc(this.toCanvasX(dot.x), this.toCanvasZ(dot.z), dot.isPlayer ? 4 : 3, 0, Math.PI * 2);

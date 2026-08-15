@@ -13,7 +13,10 @@ type GameWindow = Window & {
     mode: string;
     paused: boolean;
     pedestrianKills: number;
+    coins: number;
     addPedestrianKill: () => void;
+    addCoins: (amount: number) => void;
+    checkIn: () => { streak: number; reward: number; ok: boolean };
     player: {
       vehicleId: string;
       x: number;
@@ -403,8 +406,12 @@ test('torque curve and gear ratios shape acceleration', async ({ page }) => {
   expect(accel.peak).toBeGreaterThan(11);
 });
 
-test('garage thumbnail, arrows and selection persist', async ({ page }) => {
+test('garage thumbnail, arrows, purchase and selection persist', async ({ page }) => {
   await boot(page);
+  await page.evaluate(() => {
+    const g = window as unknown as GameWindow;
+    g.__GAME_STATE__.addCoins(10000);
+  });
   await page.getByRole('button', { name: '车库' }).click();
   const thumb = page.locator('#garage-thumb');
   await expect(thumb).toBeVisible();
@@ -417,7 +424,7 @@ test('garage thumbnail, arrows and selection persist', async ({ page }) => {
   });
 
   await page.getByRole('button', { name: '下一辆' }).click();
-  await expect(page.locator('#garage-name')).toHaveText('运动轿跑');
+  await expect(page.locator('#garage-name')).toHaveText('运动轿跑（未解锁）');
   const secondSrc = await thumb.getAttribute('src');
   expect(secondSrc).not.toBe(firstSrc);
   await expect(wrap).toHaveClass(/garage-switching-right/);
@@ -435,10 +442,12 @@ test('garage thumbnail, arrows and selection persist', async ({ page }) => {
   await page.locator('.garage-arrow-right').click();
   expect(await thumb.getAttribute('src')).toBe(secondSrc);
 
-  await page.getByRole('button', { name: '使用此车辆' }).click();
+  await page.getByRole('button', { name: /购买并装备/ }).click();
   await expect(page.getByText('城市驾驶模拟')).toBeVisible();
   const saved = await page.evaluate(() => localStorage.getItem('fenza-road-save-v1'));
   expect(saved).toContain('"selectedVehicleId":"coupe"');
+  expect(saved).toContain('"ownedVehicleIds"');
+  expect(saved).toContain('"coupe"');
 
   await page.reload();
   await page.waitForFunction(() => (window as unknown as { __GAME_STATE__?: unknown }).__GAME_STATE__ !== undefined);
@@ -1934,4 +1943,351 @@ test('multiplayer lobby, room creation, join and start work across two clients',
   }, { timeout: 15000 });
 
   await context.close();
+});
+
+test('daily check-in, daily quests, achievements and coins persist', async ({ page }) => {
+  await boot(page);
+
+  // 主菜单显示钱包与签到入口
+  await expect(page.locator('#menu-coins')).toContainText('0');
+  await expect(page.locator('#menu-checkin')).toHaveText('签到');
+
+  // 进入生涯成就页
+  await page.getByRole('button', { name: '生涯成就' }).click();
+  await expect(page.locator('.progress-overlay')).toBeVisible();
+  await expect(page.locator('#daily-list')).toBeVisible();
+
+  // 每日任务应有 3 个，且首个未完成
+  const dailyItems = await page.locator('.daily-item').count();
+  expect(dailyItems).toBe(3);
+
+  // 签到领取金币
+  await page.locator('#progress-checkin').click();
+  await expect(page.locator('#progress-checkin')).toHaveText('今日已签到');
+  const afterCheckIn = await page.evaluate(() => {
+    const g = window as unknown as GameWindow;
+    return { coins: g.__GAME_STATE__.coins, streak: g.__GAME_STATE__.checkIn().streak };
+  });
+  // checkIn() 同一天再调用应返回 ok:false，不会重复发币
+  expect(afterCheckIn.coins).toBeGreaterThanOrEqual(50);
+  expect(afterCheckIn.streak).toBeGreaterThanOrEqual(1);
+  await expect(page.locator('#progress-coins')).toContainText(String(afterCheckIn.coins));
+
+  // 撞倒行人 → 获得击杀金币与击杀成就进度
+  await page.getByRole('button', { name: '返回主菜单' }).click();
+  await page.getByRole('button', { name: '自由漫游' }).click();
+  await expect(page.locator('#hud')).toBeVisible();
+  for (let i = 0; i < 5; i += 1) {
+    await page.evaluate(() => {
+      (window as unknown as GameWindow).__GAME_STATE__.addPedestrianKill();
+    });
+  }
+  const killsState = await page.evaluate(() => {
+    const g = window as unknown as GameWindow;
+    return { kills: g.__GAME_STATE__.pedestrianKills, coins: g.__GAME_STATE__.coins };
+  });
+  expect(killsState.kills).toBe(5);
+  expect(killsState.coins).toBeGreaterThanOrEqual(afterCheckIn.coins + 25);
+  await expect(page.locator('#hud-kills')).toHaveText('5');
+  await expect(page.locator('#hud-coins')).toHaveText(String(killsState.coins));
+
+  // 击杀 5 人解锁“行人克星”成就（成就解锁 +80 金币）
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.pause-overlay')).toBeVisible();
+  await page.getByRole('button', { name: '返回主菜单' }).click();
+
+  // 存档包含留存数据
+  const saved = await page.evaluate(() => localStorage.getItem('fenza-road-save-v1'));
+  expect(saved).toContain('"coins":');
+  expect(saved).toContain('"unlockedAchievements"');
+  expect(saved).toContain('"kill-5"');
+});
+
+test('race finish grants coins and updates stats', async ({ page }) => {
+  await boot(page);
+  await page.getByRole('button', { name: '竞速模式' }).click();
+  await page.getByRole('button', { name: '开始比赛' }).click();
+  await page.waitForFunction(() => {
+    const g = window as unknown as GameWindow;
+    return g.__GAME_STATE__.race.phase === 'racing';
+  }, { timeout: 15000 });
+  await page.evaluate(() => {
+    const g = window as unknown as GameWindow;
+    g.__GAME__.debug.finishRace();
+  });
+  await expect(page.locator('#result-title')).toBeVisible();
+  await expect(page.locator('#result-reward')).toContainText('奖励');
+  const result = await page.evaluate(() => {
+    const g = window as unknown as GameWindow;
+    return {
+      coins: g.__GAME_STATE__.coins,
+      stats: (g.__GAME_STATE__ as unknown as { stats: { races: number } }).stats,
+    };
+  });
+  expect(result.coins).toBeGreaterThanOrEqual(60);
+  expect(result.stats.races).toBe(1);
+
+  // 分享按钮存在（不触发分享，只验证按钮可点击）
+  await expect(page.getByRole('button', { name: '分享成绩' })).toBeVisible();
+});
+
+test('task point prompts, opens race setup and returns to free roam', async ({ page }) => {
+  await boot(page);
+  await page.getByRole('button', { name: '自由漫游' }).click();
+  await expect(page.locator('#hud')).toBeVisible();
+
+  // 传送玩家到任务点，出现 E 键提示
+  await page.evaluate(() => {
+    const g = window as unknown as GameWindow;
+    g.__GAME__.debug.teleport(300, 300);
+  });
+  await expect(page.locator('#task-hint')).toBeVisible();
+
+  // E 打开竞速设置面板
+  await page.keyboard.press('KeyE');
+  await expect(page.locator('.task-race-overlay')).toBeVisible();
+  await expect(page.locator('#task-race-title')).toHaveText('城市环路');
+
+  // 选择 4 圈、5 名对手
+  await page.locator('[data-task-laps="4"]').click();
+  await page.locator('[data-task-opponents="5"]').click();
+  await page.getByRole('button', { name: '开始比赛' }).click();
+
+  // 进入竞速，参数生效
+  await expect(page.locator('.countdown-overlay')).toBeVisible();
+  await page.waitForFunction(() => {
+    const g = window as unknown as GameWindow;
+    return g.__GAME_STATE__.race.phase === 'racing';
+  }, { timeout: 15000 });
+  const raceState = await page.evaluate(() => {
+    const g = window as unknown as {
+      __GAME_STATE__: { race: { totalLaps: number; totalRacers: number } };
+    };
+    return { laps: g.__GAME_STATE__.race.totalLaps, racers: g.__GAME_STATE__.race.totalRacers };
+  });
+  expect(raceState.laps).toBe(4);
+  expect(raceState.racers).toBe(6);
+
+  // 结束比赛 → 结算页显示「返回自由漫游」
+  await page.evaluate(() => {
+    const g = window as unknown as GameWindow;
+    g.__GAME__.debug.finishRace();
+  });
+  await expect(page.locator('#result-title')).toBeVisible();
+  await expect(page.locator('#result-return-free')).toBeVisible();
+
+  // 返回自由漫游，玩家回到任务点附近
+  await page.getByRole('button', { name: '返回自由漫游' }).click();
+  await expect(page.locator('#hud')).toBeVisible();
+  await page.waitForFunction(() => {
+    const g = window as unknown as GameWindow;
+    return (
+      g.__GAME_STATE__.mode === 'freeRoam' &&
+      Math.hypot(g.__GAME_STATE__.player.x - 300, g.__GAME_STATE__.player.z - 300) < 30
+    );
+  }, { timeout: 5000 });
+  const after = await page.evaluate(() => {
+    const g = window as unknown as GameWindow;
+    return {
+      mode: g.__GAME_STATE__.mode,
+      x: g.__GAME_STATE__.player.x,
+      z: g.__GAME_STATE__.player.z,
+    };
+  });
+  expect(after.mode).toBe('freeRoam');
+  expect(Math.hypot(after.x - 300, after.z - 300)).toBeLessThan(30);
+});
+
+test('task panel cancels with E or Escape and hint returns', async ({ page }) => {
+  await boot(page);
+  await page.getByRole('button', { name: '自由漫游' }).click();
+  await page.evaluate(() => {
+    const g = window as unknown as GameWindow;
+    g.__GAME__.debug.teleport(750, 450);
+  });
+  await expect(page.locator('#task-hint')).toBeVisible();
+  await page.keyboard.press('KeyE');
+  await expect(page.locator('.task-race-overlay')).toBeVisible();
+  await expect(page.locator('#task-race-title')).toHaveText('城市巡回');
+  // E 再次按下关闭面板，回到自由漫游且提示恢复
+  await page.keyboard.press('KeyE');
+  await expect(page.locator('.task-race-overlay')).toBeHidden();
+  await expect(page.locator('#hud')).toBeVisible();
+  await expect(page.locator('#task-hint')).toBeVisible();
+  const mode = await page.evaluate(() => (window as unknown as GameWindow).__GAME_STATE__.mode);
+  expect(mode).toBe('freeRoam');
+});
+
+test('minimap shows blue task point markers in free roam', async ({ page }) => {
+  await boot(page);
+  await page.getByRole('button', { name: '自由漫游' }).click();
+  await expect(page.locator('#hud')).toBeVisible();
+
+  // 自由漫游时任务点进入小地图点位列表（玩家 + 3 个任务点）
+  await page.waitForFunction(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      getMinimapDots: () => { kind?: string }[];
+    };
+    const dots = game.getMinimapDots();
+    return dots.length === 4 && dots.filter((d) => d.kind === 'task').length === 3;
+  }, undefined, { timeout: 5000 });
+
+  // 小地图画布上出现蓝色高亮标记
+  await page.waitForFunction(() => {
+    const canvas = document.querySelector('#minimap') as HTMLCanvasElement | null;
+    if (!canvas) return false;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return false;
+    const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    let bluePixels = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      const a = data[i + 3];
+      if (a > 0 && b > 120 && b > r * 1.4 && g > 90) bluePixels += 1;
+    }
+    return bluePixels > 30;
+  }, undefined, { timeout: 10000 });
+
+  // 离开自由漫游（无尽模式）后任务点不再显示
+  await page.evaluate(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      startFreeRoam?: (mapMode?: string) => void;
+    };
+    game.startFreeRoam?.('endless');
+  });
+  await page.waitForFunction(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      getMinimapDots: () => { kind?: string }[];
+    };
+    return game.getMinimapDots().filter((d) => d.kind === 'task').length === 0;
+  }, undefined, { timeout: 5000 });
+});
+
+test('npc collision offsets vehicle then returns to path smoothly', async ({ page }) => {
+  await boot(page);
+  await page.getByRole('button', { name: '自由漫游' }).click();
+  await page.waitForFunction(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      traffic: { npcs: unknown[] };
+    };
+    return game.traffic.npcs.length > 0;
+  }, { timeout: 15000 });
+
+  // 等待一个「存活且离玩家不远」的 NPC：远离生成区（>680m）的 NPC 会被淡出回收，
+  // 撞向它们会导致碰撞对象中途消失；只在 650m 内挑选（安全余量 < 回收距离）
+  await page.waitForFunction(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      traffic: {
+        npcs: Array<{ fading: boolean; vehicle: { x: number; z: number } }>;
+      };
+      player: { x: number; z: number };
+    };
+    return game.traffic.npcs.some(
+      (n) =>
+        !n.fading &&
+        Math.hypot(n.vehicle.x - game.player.x, n.vehicle.z - game.player.z) < 650,
+    );
+  }, { timeout: 10000 });
+
+  // 挑选离玩家最近且未在淡出的 NPC，把玩家高速撞向它
+  const target = await page.evaluate(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      traffic: {
+        npcs: Array<{
+          fading: boolean;
+          vehicle: { x: number; z: number; heading: number; visuals: { group: { uuid: string } } };
+        }>;
+      };
+      player: { x: number; z: number };
+    };
+    const npc = game.traffic.npcs
+      .slice()
+      .filter(
+        (n) =>
+          !n.fading &&
+          Math.hypot(n.vehicle.x - game.player.x, n.vehicle.z - game.player.z) < 650,
+      )
+      .sort(
+        (a, b) =>
+          Math.hypot(a.vehicle.x - game.player.x, a.vehicle.z - game.player.z) -
+          Math.hypot(b.vehicle.x - game.player.x, b.vehicle.z - game.player.z),
+      )[0];
+    if (!npc) throw new Error('no safe npc');
+    return {
+      x: npc.vehicle.x,
+      z: npc.vehicle.z,
+      heading: npc.vehicle.heading,
+      id: npc.vehicle.visuals.group.uuid,
+    };
+  });
+
+  await page.evaluate((t) => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      player: { x: number; z: number; heading: number; speed: number; lateral: number };
+    };
+    game.player.x = t.x + Math.sin(t.heading) * 1.2;
+    game.player.z = t.z + Math.cos(t.heading) * 1.2;
+    game.player.heading = t.heading;
+    game.player.speed = 22;
+    game.player.lateral = 0;
+  }, target);
+
+  // NPC 进入碰撞偏移状态，随后让玩家停车（不再持续推挤，NPC 独自滑行并回归）
+  await page.waitForFunction(
+    (id: string) => {
+      const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+        traffic: {
+          npcs: Array<{
+            state: string;
+            vehicle: { visuals: { group: { uuid: string } } };
+          }>;
+        };
+      };
+      const npc = game.traffic.npcs.find((n) => n.vehicle.visuals.group.uuid === id);
+      return npc && npc.state === 'offset';
+    },
+    target.id,
+    { timeout: 5000 },
+  );
+  await page.evaluate(() => {
+    const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+      player: { speed: number; lateral: number };
+    };
+    game.player.speed = 0;
+    game.player.lateral = 0;
+  });
+
+  // 采样 3s：无大跳变（无瞬移），期间进入过回归/巡航
+  const samples = await page.evaluate(
+    async (id: string) => {
+      const game = (window as unknown as { __GAME__?: unknown }).__GAME__ as unknown as {
+        traffic: {
+          npcs: Array<{
+            state: string;
+            vehicle: { x: number; z: number; visuals: { group: { uuid: string } } };
+          }>;
+        };
+      };
+      const out: { x: number; z: number; state: string }[] = [];
+      for (let i = 0; i < 30; i += 1) {
+        const npc = game.traffic.npcs.find((n) => n.vehicle.visuals.group.uuid === id);
+        if (!npc) throw new Error('tracked NPC disappeared mid-sampling');
+        out.push({ x: npc.vehicle.x, z: npc.vehicle.z, state: npc.state });
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      return out;
+    },
+    target.id,
+  );
+
+  let maxStep = 0;
+  for (let i = 1; i < samples.length; i += 1) {
+    const step = Math.hypot(samples[i].x - samples[i - 1].x, samples[i].z - samples[i - 1].z);
+    maxStep = Math.max(maxStep, step);
+  }
+  expect(samples.some((s) => s.state === 'offset')).toBe(true);
+  expect(samples.some((s) => s.state === 'return' || s.state === 'cruise')).toBe(true);
+  expect(maxStep).toBeLessThan(6);
 });

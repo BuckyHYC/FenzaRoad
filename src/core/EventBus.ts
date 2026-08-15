@@ -17,6 +17,9 @@ export const Events = {
   MULTIPLAYER_LEFT: 'multiplayer:left',
   MULTIPLAYER_GAME_STARTED: 'multiplayer:game-started',
   MULTIPLAYER_STATE: 'multiplayer:state',
+  COINS_CHANGED: 'progress:coins-changed',
+  ACHIEVEMENT_UNLOCKED: 'progress:achievement-unlocked',
+  PROGRESS_CHANGED: 'progress:changed',
 } as const;
 
 type EventListener = (data?: unknown) => void;
